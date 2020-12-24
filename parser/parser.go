@@ -17,6 +17,7 @@ type Sql struct {
 	Fields             []string            // 受影响的列
 	CreateFields       []Field             // 新建的列，如果不是CreateTable类型则为nil
 	ConditionOperators []ConditionOperator // Where字句之间的连接符
+	ViewSelect         string              // 创建视图时使用，为该视图定义的Select语句
 }
 
 // 查询条件
@@ -1258,6 +1259,53 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			p.pop()
 			// Between-And语句处理完成，返回
 			p.step = stepWhere
+		case stepCreateViewName:
+			name := p.peek()
+			if !isIdentifierOrAsterisk(name) {
+				return p.query, fmt.Errorf("at CREATE VIEW: expected view name to CREATE")
+			}
+			p.query.Tables = append(p.query.Tables, name)
+			p.pop()
+			p.step = stepCreateViewOpeningParens
+		case stepCreateViewOpeningParens:
+			openingParens := p.peek()
+			if openingParens != "(" {
+				return p.query, fmt.Errorf("at CREATE VIEW: expected opening parens '('")
+			}
+			p.pop()
+			p.step = stepCreateViewField
+		case stepCreateViewField:
+			field := p.peek()
+			if !isIdentifierOrAsterisk(field) {
+				return p.query, fmt.Errorf("at CREATE VIEW: expected field name to CREATE")
+			}
+			p.query.Fields = append(p.query.Fields, field)
+			p.pop()
+			p.step = stepCreateViewCommaOrClosingParens
+		case stepCreateViewCommaOrClosingParens:
+			commaOrClosingParens := p.peek()
+			if commaOrClosingParens != "," && commaOrClosingParens != ")" {
+				return p.query, fmt.Errorf("at CREATE VIEW: expected comma ',' or closing parens ')'")
+			}
+			p.pop()
+			if commaOrClosingParens == "," {
+				p.step = stepCreateViewField
+			}
+			if commaOrClosingParens == ")" {
+				p.step = stepCreateViewAs
+			}
+		case stepCreateViewAs:
+			as := p.peek()
+			if strings.ToUpper(as) != "AS" {
+				return p.query, fmt.Errorf("at CREATE VIEW: expected AS")
+			}
+			p.pop()
+			p.step = stepCreateViewSelect
+		case stepCreateViewSelect:
+			selectSql := p.peekToEnd()
+			p.query.ViewSelect = selectSql
+			p.popToEnd()
+			p.step = stepCreateViewName
 		}
 	}
 }
@@ -1340,6 +1388,11 @@ func (p *parser) pop() (peeked string) {
 	return peeked
 }
 
+// pop到最后，用于创建视图
+func (p *parser) popToEnd() {
+	p.position += len(p.peekToEnd())
+}
+
 // 弹出所有空格
 func (p *parser) popWhitespace() {
 	for ; p.position < len(p.sql) && p.sql[p.position] == ' '; p.position++ {
@@ -1397,6 +1450,11 @@ func (p *parser) peekIdentifierWithLength() (identifier string, length int) {
 
 	// 在语句的最后
 	return p.sql[p.position:], len(p.sql[p.position:])
+}
+
+// 用于视图创建，直接返回当前位置到末尾的语句
+func (p *parser) peekToEnd() (identifier string) {
+	return p.sql[p.position:]
 }
 
 // 检测读到的标识符是否合法，或者为星号
