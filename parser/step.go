@@ -18,7 +18,7 @@ package parser
 // stepWhereField    | 'Sno'     | stepWhereOperator
 // stepWhereOperator | "="       | stepWhereAnd
 // stepWhereAnd      | "AND"     | stepWhereField
-// 将这个表转换为一个巨大的Switch语句，就是下面的doParse语句。
+// 将这个表转换为一个巨大的Switch语句，就是下面的doParse函数。
 type step int
 
 const (

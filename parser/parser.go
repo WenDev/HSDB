@@ -207,9 +207,6 @@ func (p *parser) parse() (parsedSql Sql, err error) {
 	sql, err := p.doParse()
 	p.err = err
 
-	if p.err != nil {
-		//p.err = p.validate()
-	}
 	p.logError()
 
 	return sql, err
