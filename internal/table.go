@@ -12,11 +12,17 @@ type Table struct {
 
 // 列的定义
 type Field struct {
-	Name            string       // 列名
-	DataType        DataType     // 该列的数据类型
-	DataLength      int          // 该列数据的长度
-	Constraint      []Constraint // 列的约束条件——约束类型和具体的约束条件，是一个数组
-	CheckConditions []Condition  // Check约束的条件
+	Name                     string              // 列名
+	DataType                 DataType            // 该列的数据类型
+	DataLength               int                 // 该列数据的长度
+	Constraint               []Constraint        // 列的约束条件——约束类型和具体的约束条件，是一个数组
+	CheckConditions          []Condition         // Check约束的条件
+	CheckConditionsOperator  []ConditionOperator // Check约束的连接运算符，只可能为And或者Or
+	PrimaryKey               bool                // 是否为主键
+	ForeignKey               bool                // 是否为外键
+	ForeignKeyFlag           bool                // 当前正在定义这个字段的外键，一般为false，在Create Table的ForeignKey语句中使用
+	ForeignKeyReferenceTable string              // 外键被参照表
+	ForeignKeyReferenceField string              // 外键被参照列
 }
 
 // 元组的定义，用于返回

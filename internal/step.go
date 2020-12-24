@@ -59,7 +59,7 @@ const (
 	stepCreateTableName                                   // 'Student' => stepCreateTableOpeningParens
 	stepCreateTableOpeningParens                          // "(" => stepCreateTableField
 	stepCreateTableField                                  // 'Sno' => stepCreateTableFieldType
-	stepCreateTableFieldType                              // "CHAR" => stepCreateTableFieldOpeningParens(有长度) / stepCreateTableComma(无长度)/约束
+	stepCreateTableFieldType                              // "CHAR" => stepCreateTableFieldOpeningParens(有长度) / stepCreateTableComma(无长度) / 约束
 	stepCreateTableFieldOpeningParens                     // "(" => stepCreateTableFieldLength
 	stepCreateTableFieldLength                            // '9' => stepCreateTableFieldClosingParens
 	stepCreateTableFieldClosingParens                     // ")" => stepCreateTableComma / stepCreateTableClosingParens / stepCreateTableConstraintType
@@ -75,9 +75,9 @@ const (
 	stepCheckAnd                                          // "AND" => stepCheckField
 	stepCheckOr                                           // "OR" => stepCheckField
 	stepCheckIn                                           // "IN" => stepCheckInOpeningParens
-	stepInOpeningParens                                   // "(" => stepCheckInValue
+	stepCheckInOpeningParens                              // "(" => stepCheckInValue
 	stepCheckInValue                                      // '男' => stepCheckInCommaOrClosingParens
-	stepCheckCommaOrClosingParens                         // "," / ")" => stepCheckClosingParens
+	stepCheckInCommaOrClosingParens                       // "," / ")" => stepCheckInValue / stepCheckClosingParens
 	stepPrimaryKey                                        // "PRIMARY KEY" => stepPrimaryKeyOpeningParens
 	stepPrimaryKeyOpeningParens                           // "(" => stepPrimaryKeyField
 	stepPrimaryKeyField                                   // 'Sno' => stepPrimaryKeyCommaOrClosingParens
@@ -90,7 +90,7 @@ const (
 	stepForeignKeyReferenceTable                          // 'Course' => stepForeignKeyReferenceFieldOpeningParens
 	stepForeignKeyReferenceFieldOpeningParens             // "(" => stepForeignKeyReferenceField
 	stepForeignKeyReferenceField                          // 'Cno' => stepForeignKeyReferenceFieldClosingParens
-	stepForeignKeyReferenceFieldClosingParens             // ")" => stepCreateTableComma
+	stepForeignKeyReferenceFieldClosingParens             // ")" => stepCreateTableComma / stepCreateTableClosingParens
 	stepCreateViewName                                    // 'IS_STUDENT' => stepCreateViewOpeningParens(有列名) / stepCreateViewAs(无列名)
 	stepCreateViewOpeningParens                           // "(" => stepCreateViewField
 	stepCreateViewField                                   // 'Sno' => stepCreateViewCommaOrClosingParens

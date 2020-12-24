@@ -9,13 +9,14 @@ import (
 
 // 解析完成的SQL
 type Sql struct {
-	Type         Type              // 该条SQL语句的类型
-	Tables       []string          // 该条SQL语句操作的表名，因为要实现多表查询所以可能有多个
-	Conditions   []Condition       // 查询条件：Where语句后的部分
-	Updates      map[string]string // 更新数据的Map
-	Inserts      [][]string        // 插入的数据
-	Fields       []string          // 受影响的列
-	CreateFields []Field           // 新建的列，如果不是CreateTable类型则为nil
+	Type               Type                // 该条SQL语句的类型
+	Tables             []string            // 该条SQL语句操作的表名，因为要实现多表查询所以可能有多个
+	Conditions         []Condition         // 查询条件：Where语句后的部分
+	Updates            map[string]string   // 更新数据的Map
+	Inserts            [][]string          // 插入的数据，如果不是Insert类型则为nil
+	Fields             []string            // 受影响的列
+	CreateFields       []Field             // 新建的列，如果不是CreateTable类型则为nil
+	ConditionOperators []ConditionOperator // Where字句之间的连接符
 }
 
 // 查询条件
@@ -28,6 +29,8 @@ type Condition struct {
 	IsBetween       bool     // 是否为Between-And语句，不是则BetweenOperand1和2都为nil
 	BetweenOperand1 string   // Between子句操作数1
 	BetweenOperand2 string   // Between字句操作数2
+	IsIn            bool     // 是否为In语句
+	InConditions    []string // In语句的查询条件
 }
 
 // 该条SQL语句的类型
@@ -95,12 +98,12 @@ var OperatorString = []string{
 	"Lte",
 }
 
-// Where字句的连接条件
-type WhereCondition int
+// Where、Check等子句的连接条件
+type ConditionOperator int
 
 const (
 	// 未知的Where字句连接条件
-	UnknownWhereCondition = iota
+	UnknownConditionOperator ConditionOperator = iota
 	And
 	Or
 )
@@ -409,7 +412,7 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			// 取出当前列
 			nowField := &p.query.CreateFields[len(p.query.CreateFields)-1]
 			// 拿到当前操作的Check条件
-			currentCondition := &nowField.CheckConditions[len(nowField.CheckConditions) - 1]
+			currentCondition := &nowField.CheckConditions[len(nowField.CheckConditions)-1]
 			// 判断操作符
 			switch operator {
 			case "=":
@@ -439,7 +442,7 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 					p.step = stepCheckIn
 				default:
 					currentCondition.Operator = UnknownOperator
-					return p.query, fmt.Errorf("at WHERE: unknown operator")
+					return p.query, fmt.Errorf("at CHECK: unknown operator")
 				}
 			}
 			p.pop()
@@ -448,8 +451,111 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 				p.step = stepCheckValue
 			}
 		case stepCheckValue:
+			// 取得Check约束的检查值
+			checkValue := p.peek()
+			// 取出当前列
+			nowField := &p.query.CreateFields[len(p.query.CreateFields)-1]
+			// 拿到当前操作的Check条件
+			currentCondition := &nowField.CheckConditions[len(nowField.CheckConditions)-1]
+			// 设置Check约束的值
+			currentCondition.Operand2 = checkValue
+			currentCondition.Operand2IsField = false
+			// 赋值完毕，弹出这个值，判断下一个值
+			p.pop()
+			nextIdentifier := p.peek()
+			switch strings.ToUpper(nextIdentifier) {
+			case ")":
+				// 读到左括号，跳转到左括号的条件
+				p.step = stepCheckClosingParens
+			case "AND":
+				p.step = stepCheckAnd
+			case "OR":
+				p.step = stepCheckOr
+			default:
+				return p.query, fmt.Errorf("at CHECK: unexpected token %s", nextIdentifier)
+			}
 		case stepCheckIn:
-
+			in := p.peek()
+			// 读到的不是In
+			if strings.ToUpper(in) != "IN" {
+				return p.query, fmt.Errorf("at CHECK: expected IN")
+			}
+			// 取出当前列
+			nowField := &p.query.CreateFields[len(p.query.CreateFields)-1]
+			// 拿到当前操作的Check条件，设置操作符为In
+			currentCondition := &nowField.CheckConditions[len(nowField.CheckConditions)-1]
+			currentCondition.Operator = In
+			p.pop()
+			// 下一步：读左括号
+			p.step = stepCheckInOpeningParens
+		case stepCheckInOpeningParens:
+			openingParens := p.peek()
+			// 读到的不是左括号
+			if openingParens != "(" {
+				return p.query, fmt.Errorf("at CHECK: expected opening parens '('")
+			}
+			p.pop()
+			// 下一步：读In运算的值
+			p.step = stepCheckInValue
+		case stepCheckInValue:
+			value := p.peek()
+			// 取出当前列
+			nowField := &p.query.CreateFields[len(p.query.CreateFields)-1]
+			// 拿到当前操作的Check条件，设置为In，并赋值
+			currentCondition := &nowField.CheckConditions[len(nowField.CheckConditions)-1]
+			currentCondition.IsIn = true
+			currentCondition.InConditions = append(currentCondition.InConditions, value)
+			p.pop()
+			// 下一步：读右括号或逗号
+			p.step = stepCheckInCommaOrClosingParens
+		case stepCheckInCommaOrClosingParens:
+			commaOrClosingParens := p.peek()
+			// 如果读到的不是逗号或右括号
+			if commaOrClosingParens != "," && commaOrClosingParens != ")" {
+				return p.query, fmt.Errorf("at CHECK: expected comma ',' or closing parens ')'")
+			}
+			if commaOrClosingParens == "," {
+				p.step = stepCheckInValue
+			}
+			if commaOrClosingParens == ")" {
+				// 读到左括号，表示In语句定义完毕，跳转到Check语句结束
+				p.step = stepCheckClosingParens
+			}
+		case stepCheckClosingParens:
+			closingParens := p.peek()
+			// 读到的不是右括号
+			if closingParens != ")" {
+				return p.query, fmt.Errorf("at CHECK: expected closing parens ')'")
+			}
+			p.pop()
+			// Check字句定义结束，下一步：继续定义下一个列
+			p.step = stepCreateTableComma
+		case stepCheckAnd:
+			and := p.peek()
+			// 读到的不是And
+			if strings.ToUpper(and) != "AND" {
+				return p.query, fmt.Errorf("at CHECK: expected AND")
+			}
+			// 取出当前列
+			nowField := &p.query.CreateFields[len(p.query.CreateFields)-1]
+			// Check字句运算符运算条件设置为And
+			nowField.CheckConditionsOperator = append(nowField.CheckConditionsOperator, And)
+			p.pop()
+			// 下一步：继续解析下一条Check子句
+			p.step = stepCheckField
+		case stepCheckOr:
+			or := p.peek()
+			// 读到的不是Or
+			if strings.ToUpper(or) != "OR" {
+				return p.query, fmt.Errorf("at CHECK: expected OR")
+			}
+			// 取出当前列
+			nowField := &p.query.CreateFields[len(p.query.CreateFields)-1]
+			// Check字句运算符运算条件设置为Or
+			nowField.CheckConditionsOperator = append(nowField.CheckConditionsOperator, Or)
+			p.pop()
+			// 下一步：继续解析下一条Check子句
+			p.step = stepCheckField
 		case stepCreateTableClosingParens:
 			// 表定义结束
 			closingParens := p.peek()
@@ -458,6 +564,197 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			}
 			p.pop()
 			p.step = stepCreateTableField
+		case stepCreateTableComma:
+			// 读取字段定义完成的逗号
+			comma := p.peek()
+			// 读到的不是逗号
+			if comma != "," {
+				return p.query, fmt.Errorf("at CREATE TABLE: expected comma: ','")
+			}
+			p.pop()
+			// 读取下一个标识符
+			nextIdentifier := p.peek()
+			switch strings.ToUpper(nextIdentifier) {
+			case ")":
+				// 是右括号，则表定义结束
+				p.step = stepCreateTableClosingParens
+			case "PRIMARY KEY":
+				// 跳转主键约束
+				p.step = stepPrimaryKey
+			case "FOREIGN KEY":
+				// 跳转外键约束
+				p.step = stepForeignKey
+			default:
+				// 读到的是其他东西，则是下一个字段的字段名
+				p.step = stepCreateTableField
+			}
+		case stepPrimaryKey:
+			primaryKey := p.peek()
+			// 读到的不是主键关键字
+			if strings.ToUpper(primaryKey) != "PRIMARY KEY" {
+				return p.query, fmt.Errorf("at CREATE TABLE: expected PRIMARY KEY")
+			}
+			p.pop()
+			// 下一步：读左括号
+			p.step = stepPrimaryKeyOpeningParens
+		case stepPrimaryKeyOpeningParens:
+			openingParens := p.peek()
+			if openingParens != "(" {
+				return p.query, fmt.Errorf("at CHECK: expected opening parens '('")
+			}
+			p.pop()
+			// 下一步：读主键字段
+			p.step = stepPrimaryKeyField
+		case stepPrimaryKeyField:
+			fieldName := p.peek()
+			flag := false		// flag：是否找到名称相同的字段
+			// 遍历已有的列名，判断是否存在名称相同的字段
+			for _, field := range p.query.CreateFields {
+				// 找到名称相同的字段，为其设置主键约束
+				if field.Name == fieldName {
+					// 约束类型：主键
+					field.Constraint = append(field.Constraint, Constraint{ConstraintType:PrimaryKey})
+					// 设置该列为主键
+					field.PrimaryKey = true
+					flag = true
+				}
+			}
+			// 没有找到名称相同的列
+			if flag == false {
+				return p.query, fmt.Errorf("at CREATE TABLE: unknown field %s", fieldName)
+			}
+			p.pop()
+			// 下一步：读逗号或右括号
+			p.step = stepPrimaryKeyCommaOrClosingParens
+		case stepPrimaryKeyCommaOrClosingParens:
+			commaOrClosingParens := p.peek()
+			// 读到的不是逗号或右括号
+			if commaOrClosingParens != "," && commaOrClosingParens != "(" {
+				return p.query, fmt.Errorf("at CHECK: expected comma ',' or closing parens ')'")
+			}
+			if commaOrClosingParens == "," {
+				// 读到逗号，说明有多个主键字段
+				p.step = stepPrimaryKeyField
+			}
+			if commaOrClosingParens == ")" {
+				// 读到右括号，表示Primary Key约束定义完成，跳转到逗号
+				p.step = stepCreateTableComma
+			}
+		case stepForeignKey:
+			foreignKey := p.peek()
+			// 读到的不是外键关键字
+			if strings.ToUpper(foreignKey) != "FOREIGN KEY" {
+				return p.query, fmt.Errorf("at CREATE TABLE: expected FOREIGN KEY")
+			}
+			p.pop()
+			// 下一步：读左括号
+			p.step = stepForeignKeyOpeningParens
+		case stepForeignKeyOpeningParens:
+			openingParens := p.peek()
+			if openingParens != "(" {
+				return p.query, fmt.Errorf("at CREATE TABLE: expected opening parens '('")
+			}
+			p.pop()
+			// 下一步：读参照字段
+			p.step = stepPrimaryKeyField
+		case stepForeignKeyField:
+			fieldName := p.peek()
+			flag := false		// flag：是否找到名称相同的字段
+			// 遍历已有的列名，判断是否存在名称相同的字段
+			for _, field := range p.query.CreateFields {
+				// 找到名称相同的字段，为其设置外键约束
+				if field.Name == fieldName {
+					// 约束类型为外键
+					field.Constraint = append(field.Constraint, Constraint{ConstraintType:ForeignKey})
+					// 设置外键约束
+					field.ForeignKey = true
+					// 开始定义该外键
+					field.ForeignKeyFlag = true
+					flag = true
+				}
+			}
+			// 没有找到名称相同的列
+			if flag == false {
+				return p.query, fmt.Errorf("at CREATE TABLE: unknown field %s", fieldName)
+			}
+			p.pop()
+			// 下一步：读右括号
+			p.step = stepForeignKeyClosingParens
+		case stepForeignKeyClosingParens:
+			closingParens := p.peek()
+			// 读到的不是右括号
+			if closingParens != ")" {
+				return p.query, fmt.Errorf("at CREATE TABLE: expected closing parens ')'")
+			}
+			p.pop()
+			// 下一步：读Reference关键字
+			p.step = stepForeignKeyReference
+		case stepForeignKeyReference:
+			reference := p.peek()
+			if strings.ToUpper(reference) != "REFERENCE" {
+				return p.query, fmt.Errorf("at CREATE TABLE: expected REFERENCE")
+			}
+			p.pop()
+			p.step = stepForeignKeyReferenceTable
+		case stepForeignKeyReferenceTable:
+			// 读约束表名
+			tableName := p.peek()
+			i := 0
+			for index, field := range p.query.CreateFields {
+				// 拿到当前操作的字段
+				if field.ForeignKeyFlag == true {
+					i = index
+				}
+			}
+			nowField := &p.query.CreateFields[i]
+			nowField.ForeignKeyReferenceTable = tableName
+			p.pop()
+			// 下一步：读左括号
+			p.step = stepForeignKeyReferenceFieldOpeningParens
+		case stepForeignKeyReferenceFieldOpeningParens:
+			openingParens := p.peek()
+			if openingParens != "(" {
+				return p.query, fmt.Errorf("at FOREIGN KEY: expected opening parens '('")
+			}
+			p.pop()
+			// 下一步：读被参照字段
+			p.step = stepForeignKeyReferenceField
+		case stepForeignKeyReferenceField:
+			// 读约束字段名
+			fieldName := p.peek()
+			i := 0
+			for index, field := range p.query.CreateFields {
+				// 拿到当前操作的字段
+				if field.ForeignKeyFlag == true {
+					i = index
+				}
+			}
+			nowField := &p.query.CreateFields[i]
+			nowField.ForeignKeyReferenceField = fieldName
+			// 该字段定义完成
+			nowField.ForeignKeyFlag = false
+			p.pop()
+			// 下一步：读右括号
+			p.step = stepForeignKeyReferenceFieldClosingParens
+		case stepForeignKeyReferenceFieldClosingParens:
+			closingParens := p.peek()
+			// 读到的不是右括号
+			if closingParens != ")" {
+				return p.query, fmt.Errorf("at CREATE TABLE: expected closing parens ')'")
+			}
+			p.pop()
+			// 根据读到的内容，判断下一步操作
+			nextIdentifier := p.peek()
+			switch nextIdentifier {
+			case ",":
+				// 读到逗号说明还有其他字段
+				p.step = stepCreateTableComma
+			case ")":
+				// 读到右括号说明表定义已经结束
+				p.step = stepCreateTableClosingParens
+			default:
+				return p.query, fmt.Errorf("at CREATE TABLE: unexpected token %s", nextIdentifier)
+			}
 		}
 	}
 }
