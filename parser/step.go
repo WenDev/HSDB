@@ -53,8 +53,11 @@ const (
 	stepWhereValue                                        // 'CS' => stepWhereAnd
 	stepWhereAnd                                          // "AND" => stepWhereField
 	stepWhereOr                                           // "OR" => stepWhereField
-	stepWhereBetween                                      // "BETWEEN" => stepWhereValue
-	stepWhereBetweenAnd                                   // "AND"(after a value) => stepWhereValue
+	stepWhereBetween                                      // "BETWEEN" => stepWhereBetweenValue
+	stepWhereNotBetween                                   // "NOT BETWEEN" => stepWhereBetweenValue
+	stepWhereBetweenValue                                 // '100' => stepWhereBetweenAnd
+	stepWhereBetweenAnd                                   // "AND"(after a value) => stepWhereBetweenAndValue
+	stepWhereBetweenAndValue                              // '200' => stepWhereAnd / Or//
 	stepWhereIn                                           // "IN" => stepWhereInOpeningParens
 	stepWhereNotIn                                        // "NOT IN" => stepWhereInOpeningParens
 	stepWhereInOpeningParens                              // "(" => stepWhereInValue

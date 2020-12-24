@@ -27,9 +27,11 @@ type Condition struct {
 	Operand1IsField bool     // 操作数1是不是某一个列
 	Operand2IsField bool     // 操作数2是不是某一个列
 	IsBetween       bool     // 是否为Between-And语句，不是则BetweenOperand1和2都为nil
+	IsNotBetween    bool     // 是否为Not Between-And语句
 	BetweenOperand1 string   // Between子句操作数1
 	BetweenOperand2 string   // Between字句操作数2
 	IsIn            bool     // 是否为In语句
+	IsNotIn         bool     // 是否为NotIn语句
 	InConditions    []string // In语句的查询条件
 }
 
@@ -82,10 +84,12 @@ const (
 	Lt                              // 小于： <
 	Gte                             // 大于等于：>=
 	Lte                             // 小于等于：<=
-	Between                         // Between - And字句
+	Between                         // Between - And子句
+	NotBetween                      // Not Between - And 子句
 	Like                            // 相似于Operand2
 	NotLike                         // 不相似于Operand2
 	In                              // 必须取值为Operand2的值
+	NotIn                           // 不能是Operand2的值
 )
 
 var OperatorString = []string{
@@ -143,12 +147,14 @@ var legalWords = []string{
 	"FROM",
 	"AND",
 	"IN",
+	"NOT IN",
 	"LIKE",
 	"NOT LIKE",
 	"GROUP BY",
 	"ORDER BY",
 	"HAVING",
 	"BETWEEN",
+	"NOT BETWEEN",
 	"IDENTIFIED BY",
 	"ON TABLE",
 	"TO",
@@ -855,7 +861,7 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			if len(tableName) == 0 {
 				return p.query, fmt.Errorf("at SELECT: expected quoted table name")
 			}
-			p.query.Fields = append(p.query.Fields, tableName)
+			p.query.Tables = append(p.query.Tables, tableName)
 			p.pop()
 			nextIdentifier := p.peek()
 			if nextIdentifier == "," {
@@ -895,7 +901,7 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			p.step = stepWhereOperator
 		case stepWhereOperator:
 			operator := p.peek()
-			currentCondition := p.query.Conditions[len(p.query.Conditions)-1]
+			currentCondition := &p.query.Conditions[len(p.query.Conditions)-1]
 			switch operator {
 			case "=":
 				currentCondition.Operator = Eq
@@ -913,12 +919,25 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 				currentCondition.Operator = Like
 			case "NOT LIKE":
 				currentCondition.Operator = NotLike
+			case "IN":
+				currentCondition.Operator = In
+				p.step = stepWhereIn
+			case "NOT IN":
+				currentCondition.Operator = NotIn
+				p.step = stepWhereNotIn
+			case "BETWEEN":
+				currentCondition.Operator = Between
+				p.step = stepWhereBetween
+			case "NOT BETWEEN":
+				currentCondition.Operator = NotBetween
+				p.step = stepWhereNotBetween
 			default:
 				return p.query, fmt.Errorf("at WHERE: unknown operator")
 			}
-			p.query.Conditions[len(p.query.Conditions)-1] = currentCondition
-			p.pop()
-			p.step = stepWhereValue
+			if p.step != stepWhereBetween && p.step != stepWhereNotBetween && p.step != stepWhereIn && p.step != stepWhereNotIn {
+				p.pop()
+				p.step = stepWhereValue
+			}
 		case stepWhereValue:
 			whereValue := p.peek()
 			// 拿到当前操作的Where条件子句
@@ -964,12 +983,115 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			// 下一步：读取下一个要被操作的列
 			p.step = stepWhereField
 		case stepWhereIn:
+			in := p.peek()
+			// 读到的不是In
+			if strings.ToUpper(in) != "IN" {
+				return p.query, fmt.Errorf("at WHERE: expected IN")
+			}
+			// 获得当前正在操作的条件
+			currentCondition := &p.query.Conditions[len(p.query.Conditions)-1]
+			currentCondition.IsIn = true
+			p.pop()
+			// 下一步：读左括号
+			p.step = stepWhereInOpeningParens
 		case stepWhereNotIn:
+			notIn := p.peek()
+			// 读到的不是Not In
+			if strings.ToUpper(notIn) != "NOT IN" {
+				return p.query, fmt.Errorf("at WHERE: expected NOT IN")
+			}
+			// 获得当前正在操作的条件
+			currentCondition := &p.query.Conditions[len(p.query.Conditions)-1]
+			currentCondition.IsNotIn = true
+			p.pop()
+			// 下一步：读左括号
+			p.step = stepWhereInOpeningParens
 		case stepWhereInOpeningParens:
+			openingParens := p.peek()
+			// 读到的不是左括号
+			if openingParens != "(" {
+				return p.query, fmt.Errorf("at WHERE: expected opening parens '('")
+			}
+			p.pop()
+			// 下一步：读具体数值
+			p.step = stepWhereInValue
 		case stepWhereInValue:
+			value := p.peek()
+			// 获得当前正在操作的条件
+			currentCondition := &p.query.Conditions[len(p.query.Conditions)-1]
+			// 将读取到的值追加到In操作符条件中
+			currentCondition.InConditions = append(currentCondition.InConditions, value)
+			p.pop()
+			// 下一步：读逗号或右括号
+			p.step = stepWhereInCommaOrClosingParens
 		case stepWhereInCommaOrClosingParens:
+			commaOrClosingParens := p.peek()
+			// 如果读到的不是逗号或右括号
+			if commaOrClosingParens != "," && commaOrClosingParens != ")" {
+				return p.query, fmt.Errorf("at CHECK: expected comma ',' or closing parens ')'")
+			}
+			if commaOrClosingParens == "," {
+				p.step = stepWhereInValue
+				p.pop()
+			}
+			if commaOrClosingParens == ")" {
+				// 读到左括号，表示In语句定义完毕，跳转到Where结束
+				p.step = stepWhere
+				p.pop()
+			}
 		case stepWhereBetween:
+			between := p.peek()
+			// 如果读到的不是between
+			if between != "BETWEEN" {
+				return p.query, fmt.Errorf("expected BETWEEN")
+			}
+			p.pop()
+			// 下一步：读第一个操作数
+			p.step = stepWhereBetweenValue
+		case stepWhereNotBetween:
+			notBetween := p.peek()
+			// 如果读到的不是not between
+			if notBetween != "NOT BETWEEN" {
+				return p.query, fmt.Errorf("expected NOT BETWEEN")
+			}
+			// 拿到当前操作的Where条件子句
+			currentCondition := &p.query.Conditions[len(p.query.Conditions)-1]
+			// 是一个Not-Between语句
+			currentCondition.IsNotBetween = true
+			p.pop()
+			// 下一步：读第一个操作数
+			p.step = stepWhereBetweenValue
+		case stepWhereBetweenValue:
+			value := p.peek()
+			// 拿到当前操作的Where条件子句
+			currentCondition := &p.query.Conditions[len(p.query.Conditions)-1]
+			// 设置具体数值：Between与And之间是操作数1
+			currentCondition.Operand1 = value
+			// Between-And中肯定不会出现列名
+			currentCondition.Operand1IsField = false
+			p.pop()
+			// 下一步：读AND
+			p.step = stepWhereBetweenAnd
 		case stepWhereBetweenAnd:
+			and := p.peek()
+			// 如果读到的不是AND
+			if and != "AND" {
+				return p.query, fmt.Errorf("expected AND")
+			}
+			p.pop()
+			// 下一步：读第二个操作数
+			p.step = stepWhereBetweenAndValue
+		case stepWhereBetweenAndValue:
+			value := p.peek()
+			// 拿到当前操作的Where条件子句
+			currentCondition := &p.query.Conditions[len(p.query.Conditions)-1]
+			// 设置具体数值：And之后是操作数2
+			currentCondition.Operand2 = value
+			// Between-And中肯定不会出现列名
+			currentCondition.Operand2IsField = false
+			p.pop()
+			// Between-And语句处理完成，返回
+			p.step = stepWhere
 		}
 	}
 }
