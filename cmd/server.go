@@ -14,6 +14,11 @@ func main() {
 	reader := bufio.NewReader(os.Stdin)
 	sql, _ := reader.ReadString('\n')
 	sql = strings.Replace(sql, "\n", "", -1)
-	parsedSql, _ := parser.Parse(sql)
+	parsedSql, err := parser.Parse(sql)
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		err = parser.Handle(parsedSql)
+	}
 	fmt.Println(parsedSql)
 }

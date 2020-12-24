@@ -19,6 +19,8 @@ type Field struct {
 	CheckConditions          []Condition         // Check约束的条件
 	CheckConditionsOperator  []ConditionOperator // Check约束的连接运算符，只可能为And或者Or
 	PrimaryKey               bool                // 是否为主键
+	NotNull                  bool                // 是否有非空约束
+	Unique                   bool                // 是否有唯一约束
 	ForeignKey               bool                // 是否为外键
 	ForeignKeyFlag           bool                // 当前正在定义这个字段的外键，一般为false，在Create Table的ForeignKey语句中使用
 	ForeignKeyReferenceTable string              // 外键被参照表

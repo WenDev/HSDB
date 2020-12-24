@@ -1,7 +1,6 @@
 package parser
 
 // 基本数据类型定义
-// 除了Create、Drop、Grant、Revoke之外的所有SQL语句中的数据类型都是该枚举类型中的一种
 type DataType int
 
 const (
@@ -19,7 +18,7 @@ const (
 
 var DataTypeString = []string{
 	"UnknownDataType",
-	"INT",
+	"SMALLINT",
 	"DOUBLE",
 	"DATETIME",
 	"VARCHAR",

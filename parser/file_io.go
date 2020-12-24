@@ -8,7 +8,7 @@ import (
 // 通过表名以读的方式打开一个CSV文件，适用于查询
 func getReaderByName(fileName string) (reader *csv.Reader, error error) {
 	// 打开文件名称对应的CSV文件
-	file, err := os.Open(fileName)
+	file, err := os.Open(fileName + ".csv")
 	if err != nil {
 		panic(err)
 	}
@@ -20,13 +20,29 @@ func getReaderByName(fileName string) (reader *csv.Reader, error error) {
 // 通过表名以写的方式打开一个CSV文件，适用于增删改
 func getWriterByName(fileName string) (*csv.Writer, error) {
 	// 打开文件名称对应的CSV文件
-	file, err := os.Open(fileName)
+	file, err := os.Open(fileName + ".csv")
 	if err != nil {
 		panic(err)
 	}
 	defer file.Close()
 
 	return csv.NewWriter(file), nil
+}
+
+// 根据文件名创建目录及新的CSV文件
+func createCsvFile(fileName string) {
+	fileDir := "./file"
+	err := os.MkdirAll(fileDir, 0700)
+	if err != nil {
+		panic(err)
+	}
+
+	file, err := os.Create(fileDir + "/" + fileName + ".csv")
+	if err != nil {
+		panic(err)
+	}
+
+	defer file.Close()
 }
 
 // 增加记录

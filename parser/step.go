@@ -35,9 +35,9 @@ const (
 	stepInsertFieldsOpeningParens                         // "(" => stepInsertFields
 	stepInsertFields                                      // 'Sno' => stepInsertFieldsCommaOrClosingParens
 	stepInsertFieldsCommaOrClosingParens                  // "," / ")" => stepInsertFields(多字段) / stepInsertValuesRWord(单字段)
-	stepInsertValuesRWord                                 // "VALUES" => stepInsertValuesOpeningParens
+	stepInsertValues                                      // "VALUES" => stepInsertValuesOpeningParens
 	stepInsertValuesOpeningParens                         // "(" => stepInsertValues
-	stepInsertValues                                      // '201215128' => stepInsertValuesCommaOrClosingParens
+	stepInsertValue                                       // '201215128' => stepInsertValuesCommaOrClosingParens
 	stepInsertValuesCommaOrClosingParens                  // "," / ")" => stepInsertValues(多字段) / stepInsertFieldsOpeningParens(单字段)
 	stepInsertValuesCommaBeforeOpeningParens              // "," => stepInsertValuesOpeningParens
 	stepUpdateTable                                       // 'Student' => stepUpdateSet
@@ -55,7 +55,11 @@ const (
 	stepWhereOr                                           // "OR" => stepWhereField
 	stepWhereBetween                                      // "BETWEEN" => stepWhereValue
 	stepWhereBetweenAnd                                   // "AND"(after a value) => stepWhereValue
-	stepWhereIn                                           // "IN" => stepWhereField
+	stepWhereIn                                           // "IN" => stepWhereInOpeningParens
+	stepWhereNotIn                                        // "NOT IN" => stepWhereInOpeningParens
+	stepWhereInOpeningParens                              // "(" => stepWhereInValue
+	stepWhereInValue                                      // 'CS' => stepWhereInCommaOrClosingParens
+	stepWhereInCommaOrClosingParens                       // ",", ")" => stepWhereInValue / and or等
 	stepCreateTableName                                   // 'Student' => stepCreateTableOpeningParens
 	stepCreateTableOpeningParens                          // "(" => stepCreateTableField
 	stepCreateTableField                                  // 'Sno' => stepCreateTableFieldType

@@ -207,7 +207,9 @@ func (p *parser) parse() (parsedSql Sql, err error) {
 	sql, err := p.doParse()
 	p.err = err
 
-	p.logError()
+	if err != nil {
+		p.logError()
+	}
 
 	return sql, err
 }
@@ -218,7 +220,6 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 		if p.position >= len(p.sql) {
 			return p.query, p.err
 		}
-
 		switch p.step {
 		case stepBeginning:
 			switch strings.ToUpper(p.peek()) {
@@ -382,8 +383,10 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			switch strings.ToUpper(constraintType) {
 			case "NOT NULL":
 				nowField.Constraint = append(nowField.Constraint, Constraint{ConstraintType: NotNull})
+				nowField.NotNull = true
 			case "UNIQUE":
 				nowField.Constraint = append(nowField.Constraint, Constraint{ConstraintType: Unique})
+				nowField.Unique = true
 			case "PRIMARY KEY":
 				nowField.Constraint = append(nowField.Constraint, Constraint{ConstraintType: PrimaryKey})
 			case "CHECK":
@@ -580,7 +583,7 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			}
 			// 取出当前列
 			nowField := &p.query.CreateFields[len(p.query.CreateFields)-1]
-			// Check字句运算符运算条件设置为And
+			// Check子句运算符运算条件设置为And
 			nowField.CheckConditionsOperator = append(nowField.CheckConditionsOperator, And)
 			p.pop()
 			// 下一步：继续解析下一条Check子句
@@ -814,6 +817,159 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			default:
 				return p.query, fmt.Errorf("at CREATE TABLE: unexpected token %s", nextIdentifier)
 			}
+		case stepSelectField:
+			field := p.peek()
+			if !isIdentifierOrAsterisk(field) {
+				return p.query, fmt.Errorf("at SELECT: expected field to SELECT")
+			}
+			// 将读到的字段放入解析出的字段中
+			p.query.Fields = append(p.query.Fields, field)
+			p.pop()
+			// 读下一个标识符，根据是否为FROM判断是否还有其他字段
+			nextIdentifier := p.peek()
+			if strings.ToUpper(nextIdentifier) == "FROM" {
+				p.step = stepSelectFrom
+				continue
+			}
+			p.step = stepSelectComma
+		case stepSelectComma:
+			comma := p.peek()
+			// 读到的不是逗号
+			if comma != "," {
+				return p.query, fmt.Errorf("at SELECT: expected comma ',' or FROM")
+			}
+			p.pop()
+			// 下一步：读下一个列
+			p.step = stepSelectField
+		case stepSelectFrom:
+			from := p.peek()
+			// 读到的不是FROM
+			if strings.ToUpper(from) != "FROM" {
+				return p.query, fmt.Errorf("at SELECT: expected FROM")
+			}
+			p.pop()
+			// 下一步：读表名
+			p.step = stepSelectFromTable
+		case stepSelectFromTable:
+			tableName := p.peek()
+			if len(tableName) == 0 {
+				return p.query, fmt.Errorf("at SELECT: expected quoted table name")
+			}
+			p.query.Fields = append(p.query.Fields, tableName)
+			p.pop()
+			nextIdentifier := p.peek()
+			if nextIdentifier == "," {
+				// 读到的是逗号，说明还没有读完，读逗号
+				p.step = stepSelectFromTableComma
+			} else {
+				// 表名读取完毕，跳转到Where子句
+				p.step = stepWhere
+			}
+		case stepSelectFromTableComma:
+			comma := p.peek()
+			// 读取到的不是逗号
+			if comma != "," {
+				return p.query, fmt.Errorf("at SELECT: expected comma or WHERE")
+			}
+			// 弹出这个逗号，开始读下一个表名
+			p.pop()
+			p.step = stepSelectFromTable
+		case stepWhere:
+			where := p.peek()
+			// 读到的不是Where
+			if strings.ToUpper(where) != "WHERE" {
+				return p.query, fmt.Errorf("expected WHERE")
+			}
+			p.pop()
+			// 下一步：读取要被Where所判断的列
+			p.step = stepWhereField
+		case stepWhereField:
+			field := p.peek()
+			// 读到的列名不合法
+			if !isIdentifier(field) {
+				return p.query, fmt.Errorf("at WHERE: expected field")
+			}
+			p.query.Conditions = append(p.query.Conditions, Condition{Operand1: field, Operand1IsField: true})
+			p.pop()
+			// 下一步：读取Where子句的操作符
+			p.step = stepWhereOperator
+		case stepWhereOperator:
+			operator := p.peek()
+			currentCondition := p.query.Conditions[len(p.query.Conditions)-1]
+			switch operator {
+			case "=":
+				currentCondition.Operator = Eq
+			case ">":
+				currentCondition.Operator = Gt
+			case ">=":
+				currentCondition.Operator = Gte
+			case "<":
+				currentCondition.Operator = Lt
+			case "<=":
+				currentCondition.Operator = Lte
+			case "!=":
+				currentCondition.Operator = Ne
+			case "LIKE":
+				currentCondition.Operator = Like
+			case "NOT LIKE":
+				currentCondition.Operator = NotLike
+			default:
+				return p.query, fmt.Errorf("at WHERE: unknown operator")
+			}
+			p.query.Conditions[len(p.query.Conditions)-1] = currentCondition
+			p.pop()
+			p.step = stepWhereValue
+		case stepWhereValue:
+			whereValue := p.peek()
+			// 拿到当前操作的Where条件子句
+			currentCondition := &p.query.Conditions[len(p.query.Conditions)-1]
+			// 为当前的Where操作赋值
+			currentCondition.Operand2 = whereValue
+			currentCondition.Operand2IsField = false
+			// 赋值完毕，弹出这个值，判断下一个值
+			p.pop()
+			nextIdentifier := p.peek()
+			switch strings.ToUpper(nextIdentifier) {
+			case "AND":
+				p.step = stepWhereAnd
+			case "OR":
+				p.step = stepWhereOr
+			case "IN":
+				p.step = stepWhereIn
+			case "NOT IN":
+				p.step = stepWhereNotIn
+			case "BETWEEN":
+				p.step = stepWhereBetween
+			}
+		case stepWhereAnd:
+			and := p.peek()
+			// 读到的不是And
+			if strings.ToUpper(and) != "AND" {
+				return p.query, fmt.Errorf("expected AND")
+			}
+			// 放入一个And，表示Where的第一、二个子句之间的操作条件是And
+			p.query.ConditionOperators = append(p.query.ConditionOperators, And)
+			p.pop()
+			// 下一步：读下一个要被操作的列
+			p.step = stepWhereField
+		case stepWhereOr:
+			or := p.peek()
+			// 读到的不是Or
+			if strings.ToUpper(or) != "OR" {
+				return p.query, fmt.Errorf("expected OR")
+			}
+			// 放入一个OR，表示Where的第一二个子句之间的操作条件为OR
+			p.query.ConditionOperators = append(p.query.ConditionOperators, Or)
+			p.pop()
+			// 下一步：读取下一个要被操作的列
+			p.step = stepWhereField
+		case stepWhereIn:
+		case stepWhereNotIn:
+		case stepWhereInOpeningParens:
+		case stepWhereInValue:
+		case stepWhereInCommaOrClosingParens:
+		case stepWhereBetween:
+		case stepWhereBetweenAnd:
 		}
 	}
 }
@@ -960,7 +1116,7 @@ func isIdentifierOrAsterisk(s string) bool {
 	return isIdentifier(s) || s == "*"
 }
 
-// 检测读到的标识符是否合法，若为保留字（LegalWords，则不合法）
+// 检测读到的是否合法
 func isIdentifier(s string) (result bool) {
 	for _, lw := range legalWords {
 		if strings.ToUpper(s) == lw {
