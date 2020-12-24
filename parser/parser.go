@@ -880,6 +880,97 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			// 弹出这个逗号，开始读下一个表名
 			p.pop()
 			p.step = stepSelectFromTable
+		case stepInsertTable:
+			tableName := p.peek()
+			// 如果读到的表名长度为0
+			if len(tableName) == 0 {
+				return p.query, fmt.Errorf("at INSERT INTO: expected a table name to INSERT")
+			}
+			p.query.Tables = append(p.query.Tables, tableName)
+			p.pop()
+			// 下一步：读左括号
+			p.step = stepInsertFieldsOpeningParens
+		case stepInsertFieldsOpeningParens:
+			openingParens := p.peek()
+			// 读到的不是左括号
+			if len(openingParens) != 1 || openingParens != "(" {
+				return p.query, fmt.Errorf("at INSERT INTO: expected opening parens '('")
+			}
+			p.pop()
+			// 下一步：读需要插入的字段
+			p.step = stepInsertFields
+		case stepInsertFields:
+			field := p.peek()
+			// 读到的字段名不合法
+			if !isIdentifier(field) {
+				return p.query, fmt.Errorf("at INSERT INTO: expected at least one field to INSERT")
+			}
+			// 将这个字段加入字段数组中
+			p.query.Fields = append(p.query.Fields, field)
+			p.pop()
+			// 下一步：读逗号或右括号
+			p.step = stepInsertFieldsCommaOrClosingParens
+		case stepInsertFieldsCommaOrClosingParens:
+			commaOrClosingParens := p.peek()
+			// 如果读到的不是逗号或右括号
+			if commaOrClosingParens != "," && commaOrClosingParens != ")" {
+				return p.query, fmt.Errorf("at INSERT INTO: expected comma or closing parens")
+			}
+			p.pop()
+			// 根据读到的是逗号还是右括号判断接下来需要执行什么操作
+			if commaOrClosingParens == "," {
+				// 逗号，则继续读下一个字段
+				p.step = stepInsertFields
+			} else {
+				// 右括号，则读VALUES关键字
+				p.step = stepInsertValue
+			}
+		case stepInsertValue:
+			values := p.peek()
+			// 读到的不是VALUES
+			if strings.ToUpper(values) != "VALUES" {
+				return p.query, fmt.Errorf("at INSERT INTO: expected VALUES")
+			}
+			p.pop()
+			// 下一步：读左括号
+			p.step = stepInsertValuesOpeningParens
+		case stepInsertValuesOpeningParens:
+			openingParens := p.peek()
+			// 读到的不是左括号
+			if openingParens != "(" {
+				return p.query, fmt.Errorf("at INSERT INTO: expected opening parens")
+			}
+			// 将需要插入的字段的数组初始化
+			p.query.Inserts = append(p.query.Inserts, []string{})
+			p.pop()
+			// 下一步：读需要插入的数值
+			p.step = stepInsertValues
+		case stepInsertValues:
+			value := p.peek()
+			// 将读到的数值放入待插入的数组中
+			p.query.Inserts[len(p.query.Inserts)-1] = append(p.query.Inserts[len(p.query.Inserts)-1], value)
+			p.pop()
+			// 下一步：读逗号或右括号
+			p.step = stepInsertValuesCommaOrClosingParens
+		case stepInsertValuesCommaOrClosingParens:
+			commaOrClosingParens := p.peek()
+			// 读到的不是逗号或右括号
+			if commaOrClosingParens != "," && commaOrClosingParens != ")" {
+				return p.query, fmt.Errorf("at INSERT INTO: expected comma or closing parens")
+			}
+			p.pop()
+			// 读到的是逗号，说明还有值需要插入
+			if commaOrClosingParens == "," {
+				p.step = stepInsertValues
+				continue
+			}
+			// 判断需要插入的字段数是否与给定的数值个数一致
+			currentInsertRow := p.query.Inserts[len(p.query.Inserts)-1]
+			if len(currentInsertRow) < len(p.query.Fields) {
+				return p.query, fmt.Errorf("at INSERT INTO: value count doesn't match field count")
+			}
+			// 如果一致，说明Insert语句解析完毕
+			p.step = stepInsertValue
 		case stepWhere:
 			where := p.peek()
 			// 读到的不是Where
