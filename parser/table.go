@@ -1,4 +1,4 @@
-package internal
+package parser
 
 // 表结构的定义
 type Table struct {

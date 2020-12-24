@@ -1,4 +1,4 @@
-package internal
+package parser
 
 // 当前的解析步骤
 // 在我们解析SQL语句的过程中，只有少数几个记号是合法的。
@@ -86,7 +86,7 @@ const (
 	stepForeignKeyOpeningParens                           // "(" => stepForeignKeyField
 	stepForeignKeyField                                   // 'Cpno' => stepForeignKeyClosingParens
 	stepForeignKeyClosingParens                           // ")" => stepForeignKeyReference
-	stepForeignKeyReference                               // "REFERENCE" => stepForeignKeyReferenceTable
+	stepForeignKeyReference                               // "REFERENCES" => stepForeignKeyReferenceTable
 	stepForeignKeyReferenceTable                          // 'Course' => stepForeignKeyReferenceFieldOpeningParens
 	stepForeignKeyReferenceFieldOpeningParens             // "(" => stepForeignKeyReferenceField
 	stepForeignKeyReferenceField                          // 'Cno' => stepForeignKeyReferenceFieldClosingParens

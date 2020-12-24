@@ -1,4 +1,4 @@
-package internal
+package parser
 
 import (
 	"fmt"
@@ -170,8 +170,50 @@ type parser struct {
 	nextUpdateField string // 下一个要更新的列
 }
 
+func Parse(sql string) (parsedSql Sql, err error) {
+	qs, err := ParseMany([]string{sql})
+	if len(qs) == 0 {
+		return Sql{}, err
+	}
+	return qs[0], err
+}
+
+func ParseMany(sqls []string) (parsedSqls []Sql, err error) {
+	var qs []Sql
+	for _, sql := range sqls {
+		q, err := parse(sql)
+		if err != nil {
+			return qs, err
+		}
+		qs = append(qs, q)
+	}
+
+	return qs, nil
+}
+
+func parse(sql string) (parsedSql Sql, err error) {
+	return (&parser{
+		sql:             strings.TrimSpace(sql),
+		position:        0,
+		query:           Sql{},
+		step:            stepBeginning,
+		err:             nil,
+		nextUpdateField: "",
+	}).parse()
+}
+
 // 返回一个查询结构体或一个错误
-func (p *parser) Parse() (parsedSql Sql, err error) {}
+func (p *parser) parse() (parsedSql Sql, err error) {
+	sql, err := p.doParse()
+	p.err = err
+
+	if p.err != nil {
+		//p.err = p.validate()
+	}
+	p.logError()
+
+	return sql, err
+}
 
 // 主解析函数
 func (p *parser) doParse() (parsedSql Sql, err error) {
@@ -267,8 +309,8 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			nowField := &p.query.CreateFields[len(p.query.CreateFields)-1]
 			// 判断数值类型
 			switch strings.ToUpper(fieldType) {
-			case "INT":
-				nowField.DataType = Int
+			case "SMALLINT":
+				nowField.DataType = SmallInt
 			case "DOUBLE":
 				nowField.DataType = Double
 			case "VARCHAR":
@@ -326,7 +368,7 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			switch strings.ToUpper(p.peek()) {
 			case ",":
 				// 读到的是逗号，说明本列已经定义完成，开始定义下一列
-				p.step = stepCreateTableField
+				p.step = stepCreateTableComma
 			case ")":
 				// 读到的是右括号，说明全部的列已经定义完成，跳转到结束定义
 				p.step = stepCreateTableClosingParens
@@ -348,31 +390,31 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			case "PRIMARY KEY":
 				nowField.Constraint = append(nowField.Constraint, Constraint{ConstraintType: PrimaryKey})
 			case "CHECK":
-				// Check约束需要确定Check条件，所以下一步跳转到Check条件
-				nowField.Constraint = append(nowField.Constraint, Constraint{ConstraintType: Check})
-				p.step = stepCheck
 			case "DEFAULT":
 				nowField.Constraint = append(nowField.Constraint, Constraint{ConstraintType: Default})
 			default:
 				nowField.Constraint = append(nowField.Constraint, Constraint{ConstraintType: UnknownConstraint})
 				return p.query, fmt.Errorf("at CREATE TABLE: unknown constraint type %s", constraintType)
 			}
-			// 约束判断完毕，弹出，判断下一个是什么
-			p.pop()
-			nextIdentifier := p.peek()
-			switch nextIdentifier {
-			case ",":
-				// 本列已经定义完成，转下一列定义的逗号
-				// Check约束需要跳转到Check，所以这里需要不是Check约束才可以
-				if strings.ToUpper(constraintType) != "CHECK" {
+			if strings.ToUpper(constraintType) == "CHECK" {
+				// Check约束需要确定Check条件，所以下一步跳转到Check条件
+				nowField.Constraint = append(nowField.Constraint, Constraint{ConstraintType: Check})
+				p.step = stepCheck
+			} else {
+				// 约束判断完毕，弹出，判断下一个是什么
+				p.pop()
+				nextIdentifier := p.peek()
+				switch nextIdentifier {
+				case ",":
+					// 本列已经定义完成，转下一列定义的逗号
 					p.step = stepCreateTableComma
+				case ")":
+					// 本表已经定义完成，转表定义结束的右括号
+					p.step = stepCreateTableClosingParens
+				default:
+					// 其他非法标识符
+					return p.query, fmt.Errorf("at CREATE TABLE: unexpected token: %s", nextIdentifier)
 				}
-			case ")":
-				// 本表已经定义完成，转表定义结束的右括号
-				p.step = stepCreateTableClosingParens
-			default:
-				// 其他非法标识符
-				return p.query, fmt.Errorf("at CREATE TABLE: unexpected token: %s", nextIdentifier)
 			}
 		case stepCheck:
 			check := p.peek()
@@ -395,11 +437,7 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			field := p.peek()
 			// 取出当前列
 			nowField := &p.query.CreateFields[len(p.query.CreateFields)-1]
-			// 标识符不合法
-			if field != nowField.Name {
-				return p.query, fmt.Errorf("at CREATE TABLE -> CHECK: Check field %s does not match field %s", field, nowField.Name)
-			}
-			// 标识符合法，设置Check约束条件
+			// 设置Check约束条件
 			nowField.CheckConditions = append(nowField.CheckConditions, Condition{
 				Operand1:        field,
 				Operand1IsField: true,
@@ -445,10 +483,10 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 					return p.query, fmt.Errorf("at CHECK: unknown operator")
 				}
 			}
-			p.pop()
 			if strings.ToUpper(operator) != "IN" {
 				// 只要不是In，就只有一个需要检查的数值，跳转到对应的条件
 				p.step = stepCheckValue
+				p.pop()
 			}
 		case stepCheckValue:
 			// 取得Check约束的检查值
@@ -516,10 +554,12 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			}
 			if commaOrClosingParens == "," {
 				p.step = stepCheckInValue
+				p.pop()
 			}
 			if commaOrClosingParens == ")" {
 				// 读到左括号，表示In语句定义完毕，跳转到Check语句结束
 				p.step = stepCheckClosingParens
+				p.pop()
 			}
 		case stepCheckClosingParens:
 			closingParens := p.peek()
@@ -529,7 +569,12 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			}
 			p.pop()
 			// Check字句定义结束，下一步：继续定义下一个列
-			p.step = stepCreateTableComma
+			nextIdentifier := p.peek()
+			if nextIdentifier == "," {
+				p.step = stepCreateTableComma
+			} else {
+				p.step = stepCreateTableClosingParens
+			}
 		case stepCheckAnd:
 			and := p.peek()
 			// 读到的不是And
@@ -584,6 +629,9 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			case "FOREIGN KEY":
 				// 跳转外键约束
 				p.step = stepForeignKey
+			case "CHECK":
+				// 跳转到Check约束
+				p.step = stepCheck
 			default:
 				// 读到的是其他东西，则是下一个字段的字段名
 				p.step = stepCreateTableField
@@ -607,15 +655,13 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			p.step = stepPrimaryKeyField
 		case stepPrimaryKeyField:
 			fieldName := p.peek()
-			flag := false		// flag：是否找到名称相同的字段
+			flag := false // flag：是否找到名称相同的字段
+			i := 0
 			// 遍历已有的列名，判断是否存在名称相同的字段
-			for _, field := range p.query.CreateFields {
+			for index, field := range p.query.CreateFields {
 				// 找到名称相同的字段，为其设置主键约束
 				if field.Name == fieldName {
-					// 约束类型：主键
-					field.Constraint = append(field.Constraint, Constraint{ConstraintType:PrimaryKey})
-					// 设置该列为主键
-					field.PrimaryKey = true
+					i = index
 					flag = true
 				}
 			}
@@ -623,22 +669,35 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			if flag == false {
 				return p.query, fmt.Errorf("at CREATE TABLE: unknown field %s", fieldName)
 			}
+			field := &p.query.CreateFields[i]
+			// 约束类型：主键
+			field.Constraint = append(field.Constraint, Constraint{ConstraintType: PrimaryKey})
+			// 设置该列为主键
+			field.PrimaryKey = true
 			p.pop()
 			// 下一步：读逗号或右括号
 			p.step = stepPrimaryKeyCommaOrClosingParens
 		case stepPrimaryKeyCommaOrClosingParens:
 			commaOrClosingParens := p.peek()
 			// 读到的不是逗号或右括号
-			if commaOrClosingParens != "," && commaOrClosingParens != "(" {
-				return p.query, fmt.Errorf("at CHECK: expected comma ',' or closing parens ')'")
+			if commaOrClosingParens != "," && commaOrClosingParens != ")" {
+				return p.query, fmt.Errorf("at CREATE TABLE: expected comma ',' or closing parens ')'")
 			}
 			if commaOrClosingParens == "," {
 				// 读到逗号，说明有多个主键字段
+				p.pop()
 				p.step = stepPrimaryKeyField
 			}
 			if commaOrClosingParens == ")" {
-				// 读到右括号，表示Primary Key约束定义完成，跳转到逗号
-				p.step = stepCreateTableComma
+				// 读到右括号，表示Primary Key约束定义完成
+				p.pop()
+				if p.peek() == "," {
+					// 读到逗号，说明还有其他字段
+					p.step = stepCreateTableComma
+				} else {
+					// 读到右括号，说明表的定义已经完成
+					p.step = stepCreateTableClosingParens
+				}
 			}
 		case stepForeignKey:
 			foreignKey := p.peek()
@@ -656,20 +715,16 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			}
 			p.pop()
 			// 下一步：读参照字段
-			p.step = stepPrimaryKeyField
+			p.step = stepForeignKeyField
 		case stepForeignKeyField:
 			fieldName := p.peek()
-			flag := false		// flag：是否找到名称相同的字段
+			flag := false // flag：是否找到名称相同的字段
+			i := 0
 			// 遍历已有的列名，判断是否存在名称相同的字段
-			for _, field := range p.query.CreateFields {
+			for index, field := range p.query.CreateFields {
 				// 找到名称相同的字段，为其设置外键约束
 				if field.Name == fieldName {
-					// 约束类型为外键
-					field.Constraint = append(field.Constraint, Constraint{ConstraintType:ForeignKey})
-					// 设置外键约束
-					field.ForeignKey = true
-					// 开始定义该外键
-					field.ForeignKeyFlag = true
+					i = index
 					flag = true
 				}
 			}
@@ -677,6 +732,13 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			if flag == false {
 				return p.query, fmt.Errorf("at CREATE TABLE: unknown field %s", fieldName)
 			}
+			field := &p.query.CreateFields[i]
+			// 约束类型为外键
+			field.Constraint = append(field.Constraint, Constraint{ConstraintType: ForeignKey})
+			// 设置外键约束
+			field.ForeignKey = true
+			// 开始定义该外键
+			field.ForeignKeyFlag = true
 			p.pop()
 			// 下一步：读右括号
 			p.step = stepForeignKeyClosingParens
@@ -691,8 +753,8 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			p.step = stepForeignKeyReference
 		case stepForeignKeyReference:
 			reference := p.peek()
-			if strings.ToUpper(reference) != "REFERENCE" {
-				return p.query, fmt.Errorf("at CREATE TABLE: expected REFERENCE")
+			if strings.ToUpper(reference) != "REFERENCES" {
+				return p.query, fmt.Errorf("at CREATE TABLE: expected REFERENCES")
 			}
 			p.pop()
 			p.step = stepForeignKeyReferenceTable
@@ -915,11 +977,6 @@ func isIdentifier(s string) (result bool) {
 
 // 打印错误信息
 func (p *parser) logError() {
-	// 没有错误，不需要打印
-	if p.err == nil {
-		return
-	}
-
 	// 打印错误的SQL语句和错误原因
 	fmt.Println(p.sql)
 	fmt.Println(strings.Repeat(" ", p.position) + "^")
