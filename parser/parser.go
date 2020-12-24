@@ -971,6 +971,81 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			}
 			// 如果一致，说明Insert语句解析完毕
 			p.step = stepInsertValue
+		case stepUpdateTable:
+			tableName := p.peek()
+			// 如果读到的表名长度为0
+			if len(tableName) == 0 {
+				return p.query, fmt.Errorf("at UPDATE: expected a table name to UPDATE")
+			}
+			// 把表名添加到待更新的表中
+			p.query.Tables = append(p.query.Tables, tableName)
+			p.pop()
+			// 下一步：读"SET"
+			p.step = stepUpdateSet
+		case stepUpdateSet:
+			set := p.peek()
+			// 如果读取到的不是SET
+			if set != "SET" {
+				return p.query, fmt.Errorf("at UPDATE: expected SET")
+			}
+			p.pop()
+			// 下一步：读要更新的字段名
+			p.step = stepUpdateField
+		case stepUpdateField:
+			field := p.peek()
+			// 读到的字段名非法
+			if !isIdentifier(field) {
+				return p.query, fmt.Errorf("at UPDATE: expected at least one field to update")
+			}
+			p.nextUpdateField = field
+			p.pop()
+			// 下一步：读等号
+			p.step = stepUpdateEqual
+		case stepUpdateEqual:
+			equal := p.peek()
+			// 读到的不是等号
+			if equal != "=" {
+				return p.query, fmt.Errorf("at UPDATE: expected equal '='")
+			}
+			p.pop()
+			// 下一步：读字段值
+			p.step = stepUpdateValue
+		case stepUpdateValue:
+			value := p.peek()
+			// 将字段值放入要更新的字段列表中
+			p.query.Updates[p.nextUpdateField] = value
+			p.nextUpdateField = ""
+			p.pop()
+			// 根据下一个标识符决定进行什么操作
+			nextIdentifier := p.peek()
+			// 读到的是where，跳转到Where子句解析
+			if strings.ToUpper(nextIdentifier) == "WHERE" {
+				p.step = stepWhere
+				continue
+			}
+			// 读到的是逗号，说明还有其他要更新的字段
+			p.step = stepUpdateComma
+		case stepUpdateComma:
+			comma := p.peek()
+			// 读到的不是逗号
+			if comma != "," {
+				return p.query, fmt.Errorf("at UPDATE: expected comma ','")
+			}
+			p.pop()
+			// 下一步： 读下一个字段名
+			p.step = stepUpdateField
+		case stepDeleteFromTable:
+			tableName := p.peek()
+			// 读到的要删除的表名长度为0
+			if len(tableName) == 0 {
+				return p.query, fmt.Errorf("at DELETE FROM: expected a table name to DELETE FROM")
+			}
+			p.query.Tables = append(p.query.Tables, tableName)
+			p.pop()
+			if p.peek() == "WHERE" {
+				// 有WHERE，则下一步：读WHERE子句
+				p.step = stepWhere
+			}
 		case stepWhere:
 			where := p.peek()
 			// 读到的不是Where

@@ -10,8 +10,8 @@ package parser
 // stepBeginning     | "UPDATE"  | stepUpdateTable
 // stepUpdateTable   | 'Student' | stepUpdateSet
 // stepUpdateSet     | "SET"     | stepUpdateField
-// stepUpdateField   | 'Sage'    | stepUpdateEquals
-// stepUpdateEquals  | "="       | stepUpdateValue
+// stepUpdateField   | 'Sage'    | stepUpdateEqual
+// stepUpdateEqual   | "="       | stepUpdateValue
 // stepUpdateValue   | '22'      | stepUpdateComma
 // stepUpdateComma   | ","       | stepUpdateField
 // stepUpdateComma   | "WHERE"   | stepWhereField
@@ -39,11 +39,10 @@ const (
 	stepInsertValuesOpeningParens                         // "(" => stepInsertValues
 	stepInsertValue                                       // '201215128' => stepInsertValuesCommaOrClosingParens
 	stepInsertValuesCommaOrClosingParens                  // "," / ")" => stepInsertValues(多字段) / stepInsertFieldsOpeningParens(单字段)
-	stepInsertValuesCommaBeforeOpeningParens              // "," => stepInsertValuesOpeningParens
 	stepUpdateTable                                       // 'Student' => stepUpdateSet
 	stepUpdateSet                                         // "SET" => stepUpdateField
-	stepUpdateField                                       // 'Sage' => stepUpdateEquals
-	stepUpdateEquals                                      // "=" => stepUpdateValue
+	stepUpdateField                                       // 'Sage' => stepUpdateEqual
+	stepUpdateEqual                                       // "=" => stepUpdateValue
 	stepUpdateValue                                       // '22' => stepUpdateComma
 	stepUpdateComma                                       // "," / "WHERE" => stepUpdateField
 	stepDeleteFromTable                                   // 'Student' => stepWhere
