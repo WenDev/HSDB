@@ -18,6 +18,8 @@ type Sql struct {
 	CreateFields       []Field             // 新建的列，如果不是CreateTable类型则为nil
 	ConditionOperators []ConditionOperator // Where字句之间的连接符
 	ViewSelect         string              // 创建视图时使用，为该视图定义的Select语句
+	CreateUserName     string              // 创建的用户的用户名
+	CreateUserPassword string              // 创建的用户的密码
 }
 
 // 查询条件
@@ -1306,6 +1308,23 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			p.query.ViewSelect = selectSql
 			p.popToEnd()
 			p.step = stepCreateViewName
+		case stepCreateUserName:
+			username := p.peek()
+			p.query.CreateUserName = username
+			p.pop()
+			p.step = stepCreateUserIdentifiedBy
+		case stepCreateUserIdentifiedBy:
+			identifiedBy := p.peek()
+			if identifiedBy != "IDENTIFIED BY" {
+				return p.query, fmt.Errorf("at CREATE USER: expected IDENTIFIED BY")
+			}
+			p.pop()
+			p.step = stepCreateUserPassword
+		case stepCreateUserPassword:
+			password := p.peek()
+			p.query.CreateUserPassword = password
+			p.pop()
+			p.step = stepCreateUserName
 		}
 	}
 }
