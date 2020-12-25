@@ -18,8 +18,10 @@ type Sql struct {
 	CreateFields       []Field             // 新建的列，如果不是CreateTable类型则为nil
 	ConditionOperators []ConditionOperator // Where字句之间的连接符
 	ViewSelect         string              // 创建视图时使用，为该视图定义的Select语句
-	CreateUserName     string              // 创建的用户的用户名
-	CreateUserPassword string              // 创建的用户的密码
+	Username           string              // 创建的用户的用户名/授权时的用户名
+	Password           string              // 创建的用户的密码
+	Privileges         []Privilege         // 赋予或收回用户的权限
+	Users              []string            // 被操作权限的用户
 }
 
 // 查询条件
@@ -124,6 +126,18 @@ var WhereConditionString = []string{
 	"Like",
 }
 
+// 用户权限类型
+type Privilege int
+
+const (
+	UnknownPermission Privilege = iota
+	SelectPrivilege
+	InsertPrivilege
+	UpdatePrivilege
+	DeletePrivilege
+	AllPrivileges
+)
+
 // SQL语句中的合法字符，未出现在此处表示不合法
 var legalWords = []string{
 	"(",
@@ -162,6 +176,7 @@ var legalWords = []string{
 	"ON TABLE",
 	"TO",
 	"GRANT",
+	"ALL PRIVILEGES",
 	"REVOKE",
 	"NOT NULL",
 	"UNIQUE",
@@ -1310,21 +1325,132 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			p.step = stepCreateViewName
 		case stepCreateUserName:
 			username := p.peek()
-			p.query.CreateUserName = username
+			p.query.Username = username
 			p.pop()
 			p.step = stepCreateUserIdentifiedBy
 		case stepCreateUserIdentifiedBy:
 			identifiedBy := p.peek()
-			if identifiedBy != "IDENTIFIED BY" {
+			if strings.ToUpper(identifiedBy) != "IDENTIFIED BY" {
 				return p.query, fmt.Errorf("at CREATE USER: expected IDENTIFIED BY")
 			}
 			p.pop()
 			p.step = stepCreateUserPassword
 		case stepCreateUserPassword:
 			password := p.peek()
-			p.query.CreateUserPassword = password
+			p.query.Password = password
 			p.pop()
 			p.step = stepCreateUserName
+		case stepGrantPrivilege:
+			privilege := p.peek()
+			// 判断读取到的是什么权限
+			switch strings.ToUpper(privilege) {
+			case "SELECT":
+				p.query.Privileges = append(p.query.Privileges, SelectPrivilege)
+			case "INSERT":
+				p.query.Privileges = append(p.query.Privileges, InsertPrivilege)
+			case "UPDATE":
+				p.query.Privileges = append(p.query.Privileges, UpdatePrivilege)
+			case "DELETE":
+				p.query.Privileges = append(p.query.Privileges, DeletePrivilege)
+			case "ALL PRIVILEGES":
+				p.query.Privileges = append(p.query.Privileges, AllPrivileges)
+			default:
+				return p.query, fmt.Errorf("at GRANT: unknown privilege %s", privilege)
+			}
+			p.pop()
+			nextIdentifier := p.peek()
+			switch strings.ToUpper(nextIdentifier) {
+			case ",":
+				p.pop()
+				p.step = stepGrantPrivilege
+			case "(":
+				p.step = stepGrantPrivilegeOpeningParens
+			case "ON TABLE":
+				p.step = stepGrantOnTable
+			default:
+				return p.query, fmt.Errorf("at GRANT: unexpected token %s", nextIdentifier)
+			}
+		case stepGrantPrivilegeOpeningParens:
+			openingParens := p.peek()
+			if openingParens != "(" {
+				return p.query, fmt.Errorf("at GRANT: expect opening parens '('")
+			}
+			p.pop()
+			p.step = stepGrantPrivilegeField
+		case stepGrantPrivilegeField:
+			field := p.peek()
+			p.query.Fields = append(p.query.Fields, field)
+			p.pop()
+			p.step = stepGrantPrivilegeCommaOrClosingParens
+		case stepGrantPrivilegeCommaOrClosingParens:
+			commaOrClosingParens := p.peek()
+			if commaOrClosingParens != "," && commaOrClosingParens != ")" {
+				return p.query, fmt.Errorf("at GRANT: expect comma or closing parens")
+			}
+			p.pop()
+			if commaOrClosingParens == "," {
+				p.step = stepGrantPrivilegeField
+			}
+			if commaOrClosingParens == ")" {
+				nextIdentifier := p.peek()
+				switch strings.ToUpper(nextIdentifier) {
+				case ",":
+					p.pop()
+					p.step = stepGrantPrivilege
+				case "ON TABLE":
+					p.step = stepGrantOnTable
+				default:
+					return p.query, fmt.Errorf("at GRANT: unexpected token %s", nextIdentifier)
+				}
+			}
+		case stepGrantOnTable:
+			onTable := p.peek()
+			if strings.ToUpper(onTable) != "ON TABLE" {
+				return p.query, fmt.Errorf("at GRANT: expect ON TABLE")
+			}
+			p.pop()
+			p.step = stepGrantTableName
+		case stepGrantTableName:
+			tableName := p.peek()
+			p.query.Tables = append(p.query.Tables, tableName)
+			p.pop()
+			nextIdentifier := p.peek()
+			if nextIdentifier == "," {
+				p.step = stepGrantTableComma
+			} else {
+				p.step = stepGrantTo
+			}
+		case stepGrantTableComma:
+			comma := p.peek()
+			if comma != "," {
+				return p.query, fmt.Errorf("at GRANT: expect comma ','")
+			}
+			p.pop()
+			p.step = stepGrantTableName
+		case stepGrantTo:
+			to := p.peek()
+			if strings.ToUpper(to) != "TO" {
+				return p.query, fmt.Errorf("at GRANT: expect TO")
+			}
+			p.pop()
+			p.step = stepGrantUserName
+		case stepGrantUserName:
+			username := p.peek()
+			p.query.Users = append(p.query.Users, username)
+			p.pop()
+			nextIdentifier := p.peek()
+			if nextIdentifier == "," {
+				p.step = stepGrantUserComma
+			} else {
+				p.step = stepGrantUserName
+			}
+		case stepGrantUserComma:
+			comma := p.peek()
+			if comma != "," {
+				return p.query, fmt.Errorf("at GRANT: expect comma ','")
+			}
+			p.pop()
+			p.step = stepGrantUserName
 		}
 	}
 }

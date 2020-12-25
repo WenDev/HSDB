@@ -112,7 +112,7 @@ const (
 	stepCreateUserName                                    // 'username' => stepCreateUserIdentifiedBy
 	stepCreateUserIdentifiedBy                            // "IDENTIFIED BY" => stepCreateUserPassword
 	stepCreateUserPassword                                // 'password' => stepCreateUser
-	stepGrantPrivilege                                    // "SELECT" => stepGrantComma(多权限) / stepGrantOn(单权限) / stepGrantPrivilegeOpeningParens(有括号)
+	stepGrantPrivilege                                    // "SELECT" => stepGrantComma(多权限) / stepGrantOnTable(单权限) / stepGrantPrivilegeOpeningParens(有括号)
 	stepGrantPrivilegeOpeningParens                       // "(" => stepGrantPrivilegeField
 	stepGrantPrivilegeField                               // 'Sno' => stepGrantPrivilegeCommaOrClosingParens
 	stepGrantPrivilegeCommaOrClosingParens                // "," / ")" => stepGrantPrivilegeComma(多字段) / stepGrantOnTable(单字段)
