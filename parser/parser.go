@@ -1003,8 +1003,14 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			if len(currentInsertRow) < len(p.query.Fields) {
 				return p.query, fmt.Errorf("at INSERT INTO: value count doesn't match field count")
 			}
-			// 如果一致，说明Insert语句解析完毕
-			p.step = stepInsertValue
+			p.step = stepInsertValuesCommaBeforeOpeningParens
+		case stepInsertValuesCommaBeforeOpeningParens:
+			commaRWord := p.peek()
+			if strings.ToUpper(commaRWord) != "," {
+				return p.query, fmt.Errorf("at INSERT INTO: expected comma")
+			}
+			p.pop()
+			p.step = stepInsertValuesOpeningParens
 		case stepUpdateTable:
 			tableName := p.peek()
 			// 如果读到的表名长度为0

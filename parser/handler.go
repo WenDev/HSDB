@@ -3,8 +3,11 @@ package parser
 import (
 	"bufio"
 	"encoding/csv"
+	"fmt"
+	"io"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // 表定义的存储结构
@@ -40,6 +43,11 @@ func Handle(sql Sql) (err error) {
 		}
 	case CreateIndex:
 		err = handleCreateIndex(sql)
+		if err != nil {
+			return err
+		}
+	case Insert:
+		err = handleInsert(sql)
 		if err != nil {
 			return err
 		}
@@ -131,3 +139,70 @@ func handleCreateIndex(sql Sql) (err error) {
 
 	return nil
 }
+
+func handleInsert(sql Sql) (err error) {
+	fileName, err := getFileByName(sql.Tables[0] + ".csv")
+	path := "./file/"
+	if err != nil {
+		panic(err)
+	}
+	if fileName == "" {
+		return fmt.Errorf("at INSERT: unknown table name %s", sql.Tables[0])
+	}
+	tableDefFileName := strings.TrimSuffix(fileName, ".csv") + "_def.csv"
+	tableDef, err := os.Open(path + tableDefFileName)
+	if err != nil {
+		panic(err)
+	}
+	defer tableDef.Close()
+	table, err := os.OpenFile(path + fileName, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
+	if err != nil {
+		panic(err)
+	}
+	defer table.Close()
+	tableDefineReader := csv.NewReader(tableDef)
+	tableDefData, err := tableDefineReader.ReadAll()
+	if err != nil {
+		panic(err)
+	}
+
+	flag := false
+	for _, field := range sql.Fields {
+		for _, def := range tableDefData {
+			if field == def[0] {
+				flag = true
+				break
+			}
+		}
+		if flag == false {
+			return fmt.Errorf("at SELECT: Unknown field name %s", field)
+		}
+		flag = false
+	}
+
+	table.Seek(0, io.SeekEnd)
+	tableWriter := csv.NewWriter(table)
+	tableWriter.WriteAll(sql.Inserts)
+	tableWriter.Flush()
+
+	return nil
+}
+
+//func handleSelect(sql Sql) (err error) {
+//	fileName, err := getFileByName(sql.Tables[0])
+//	if err != nil {
+//		panic(err)
+//	}
+//	tableDefFileName := strings.TrimSuffix(fileName, ".csv") + "_def.csv"
+//
+//	tableDef, err := os.Open(tableDefFileName)
+//	if err != nil {
+//		panic(err)
+//	}
+//	table, err := os.Open(fileName)
+//	if err != nil {
+//		panic(err)
+//	}
+//}
+
+//func handleWhere(data [][]string, sql Sql) (result [][]string) {}

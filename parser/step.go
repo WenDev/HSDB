@@ -39,6 +39,7 @@ const (
 	stepInsertValuesOpeningParens                         // "(" => stepInsertValues
 	stepInsertValue                                       // '201215128' => stepInsertValuesCommaOrClosingParens
 	stepInsertValuesCommaOrClosingParens                  // "," / ")" => stepInsertValues(多字段) / stepInsertFieldsOpeningParens(单字段)
+	stepInsertValuesCommaBeforeOpeningParens              // ,( => stepInsertValuesOpeningParens
 	stepUpdateTable                                       // 'Student' => stepUpdateSet
 	stepUpdateSet                                         // "SET" => stepUpdateField
 	stepUpdateField                                       // 'Sage' => stepUpdateEqual

@@ -2,6 +2,7 @@ package parser
 
 import (
 	"encoding/csv"
+	"io/ioutil"
 	"os"
 )
 
@@ -59,6 +60,20 @@ func createTxtFile(fileName string) {
 	}
 
 	defer file.Close()
+}
+
+// 得到所有包含某个文件名的文件
+func getFileByName(name string) (file string, err error) {
+	dir, err := ioutil.ReadDir("./file")
+	if err != nil {
+		return "", err
+	}
+	for _, file := range dir {
+		if name == file.Name() {
+			return file.Name(), nil
+		}
+	}
+	return "", err
 }
 
 // 增加记录
