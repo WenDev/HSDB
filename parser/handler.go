@@ -7,6 +7,7 @@ import (
 	"strconv"
 )
 
+// 表定义的存储结构
 type TableDefine struct {
 	ColumnName           string   // 列名
 	DataType             DataType // 本列的数据类型
@@ -19,6 +20,12 @@ type TableDefine struct {
 	ForeignKeyColumnName string   // 外键参照列名
 }
 
+// 索引的存储结构
+type Index struct {
+	Values     []string // 该行的值
+	PrimaryKey string // 该行的主键
+}
+
 func Handle(sql Sql) (err error) {
 	switch sql.Type {
 	case CreateTable:
@@ -28,6 +35,11 @@ func Handle(sql Sql) (err error) {
 		}
 	case CreateView:
 		err = handleCreateView(sql)
+		if err != nil {
+			return err
+		}
+	case CreateIndex:
+		err = handleCreateIndex(sql)
 		if err != nil {
 			return err
 		}
@@ -46,7 +58,7 @@ func handleCreateTable(sql Sql) (err error) {
 	createCsvFile(sql.Tables[0] + "_def")
 
 	// 打开文件名称对应的CSV文件
-	file, err := os.OpenFile("./file/" + sql.Tables[0] + "_def.csv", os.O_APPEND|os.O_WRONLY, os.ModeAppend)
+	file, err := os.OpenFile("./file/"+sql.Tables[0]+"_def.csv", os.O_APPEND|os.O_WRONLY, os.ModeAppend)
 	if err != nil {
 		panic(err)
 	}
@@ -86,7 +98,7 @@ func handleCreateView(sql Sql) (err error) {
 	createTxtFile(sql.Tables[0])
 
 	// 打开文件名称对应的txt文件
-	file, err := os.OpenFile("./file/" + sql.Tables[0] + ".txt", os.O_APPEND|os.O_WRONLY, os.ModeAppend)
+	file, err := os.OpenFile("./file/"+sql.Tables[0]+".txt", os.O_APPEND|os.O_WRONLY, os.ModeAppend)
 	if err != nil {
 		panic(err)
 	}
@@ -105,3 +117,17 @@ func handleCreateView(sql Sql) (err error) {
 	return nil
 }
 
+// 创建索引的处理器
+func handleCreateIndex(sql Sql) (err error) {
+	// 每个列一个CSV文件
+	for index, name := range sql.Fields {
+		// 该列没有定义升序还是降序就按升序存储
+		if index >= len(sql.IndexArrangement)|| sql.IndexArrangement[index] == "ASC" {
+			createCsvFile(sql.IndexName + "_" + sql.Tables[0] + "_idx_ASC_" + name)
+		} else {
+			createCsvFile(sql.IndexName + "_" + sql.Tables[0] + "_idx_DESC_" + name)
+		}
+	}
+
+	return nil
+}
