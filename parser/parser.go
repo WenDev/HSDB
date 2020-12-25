@@ -18,6 +18,9 @@ type Sql struct {
 	CreateFields       []Field             // 新建的列，如果不是CreateTable类型则为nil
 	ConditionOperators []ConditionOperator // Where字句之间的连接符
 	ViewSelect         string              // 创建视图时使用，为该视图定义的Select语句
+	IndexName          string              // 创建索引时使用，为创建的索引名称
+	IndexType          string              // 建立的索引的类型
+	IndexArrangement   []string            // 索引的排列方向：ASC或者DESC
 	Username           string              // 创建的用户的用户名/授权时的用户名
 	Password           string              // 创建的用户的密码
 	Privileges         []Privilege         // 赋予或收回用户的权限
@@ -159,10 +162,17 @@ var legalWords = []string{
 	"CREATE VIEW",
 	"CREATE INDEX",
 	"CREATE USER",
+	"CREATE UNIQUE INDEX",
+	"CREATE CLUSTER INDEX",
 	"CHECK",
 	"WHERE",
 	"FROM",
 	"AND",
+	"ASC",
+	"DESC",
+	"UNIQUE",
+	"CLUSTER",
+	"INSERT",
 	"IN",
 	"NOT IN",
 	"LIKE",
@@ -272,8 +282,14 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 				p.query.Type = CreateView
 				p.pop()
 				p.step = stepCreateViewName
-			case "CREATE INDEX":
+			case "CREATE UNIQUE INDEX":
 				p.query.Type = CreateIndex
+				p.query.IndexType = "UNIQUE"
+				p.pop()
+				p.step = stepCreateIndexName
+			case "CREATE CLUSTER INDEX":
+				p.query.Type = CreateIndex
+				p.query.IndexType = "CLUSTER"
 				p.pop()
 				p.step = stepCreateIndexName
 			case "CREATE USER":
@@ -296,7 +312,7 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			tableName := p.peek()
 			// 表名不合法
 			if !isIdentifierOrAsterisk(tableName) {
-				return p.query, fmt.Errorf("at CREATE TABLE: expected a legal table name to CREATE")
+				return p.query, fmt.Errorf("at CREATE TABLE: expected a legal table name from CREATE")
 			}
 			// 把表名放入SQL查询的表名中
 			p.query.Tables = append(p.query.Tables, tableName)
@@ -844,7 +860,7 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 		case stepSelectField:
 			field := p.peek()
 			if !isIdentifierOrAsterisk(field) {
-				return p.query, fmt.Errorf("at SELECT: expected field to SELECT")
+				return p.query, fmt.Errorf("at SELECT: expected field from SELECT")
 			}
 			// 将读到的字段放入解析出的字段中
 			p.query.Fields = append(p.query.Fields, field)
@@ -902,7 +918,7 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			tableName := p.peek()
 			// 如果读到的表名长度为0
 			if len(tableName) == 0 {
-				return p.query, fmt.Errorf("at INSERT INTO: expected a table name to INSERT")
+				return p.query, fmt.Errorf("at INSERT INTO: expected a table name from INSERT")
 			}
 			p.query.Tables = append(p.query.Tables, tableName)
 			p.pop()
@@ -921,7 +937,7 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			field := p.peek()
 			// 读到的字段名不合法
 			if !isIdentifier(field) {
-				return p.query, fmt.Errorf("at INSERT INTO: expected at least one field to INSERT")
+				return p.query, fmt.Errorf("at INSERT INTO: expected at least one field from INSERT")
 			}
 			// 将这个字段加入字段数组中
 			p.query.Fields = append(p.query.Fields, field)
@@ -993,7 +1009,7 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			tableName := p.peek()
 			// 如果读到的表名长度为0
 			if len(tableName) == 0 {
-				return p.query, fmt.Errorf("at UPDATE: expected a table name to UPDATE")
+				return p.query, fmt.Errorf("at UPDATE: expected a table name from UPDATE")
 			}
 			// 把表名添加到待更新的表中
 			p.query.Tables = append(p.query.Tables, tableName)
@@ -1013,7 +1029,7 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			field := p.peek()
 			// 读到的字段名非法
 			if !isIdentifier(field) {
-				return p.query, fmt.Errorf("at UPDATE: expected at least one field to update")
+				return p.query, fmt.Errorf("at UPDATE: expected at least one field from update")
 			}
 			p.nextUpdateField = field
 			p.pop()
@@ -1056,7 +1072,7 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			tableName := p.peek()
 			// 读到的要删除的表名长度为0
 			if len(tableName) == 0 {
-				return p.query, fmt.Errorf("at DELETE FROM: expected a table name to DELETE FROM")
+				return p.query, fmt.Errorf("at DELETE FROM: expected a table name from DELETE FROM")
 			}
 			p.query.Tables = append(p.query.Tables, tableName)
 			p.pop()
@@ -1279,7 +1295,7 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 		case stepCreateViewName:
 			name := p.peek()
 			if !isIdentifierOrAsterisk(name) {
-				return p.query, fmt.Errorf("at CREATE VIEW: expected view name to CREATE")
+				return p.query, fmt.Errorf("at CREATE VIEW: expected view name from CREATE")
 			}
 			p.query.Tables = append(p.query.Tables, name)
 			p.pop()
@@ -1294,7 +1310,7 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 		case stepCreateViewField:
 			field := p.peek()
 			if !isIdentifierOrAsterisk(field) {
-				return p.query, fmt.Errorf("at CREATE VIEW: expected field name to CREATE")
+				return p.query, fmt.Errorf("at CREATE VIEW: expected field name from CREATE")
 			}
 			p.query.Fields = append(p.query.Fields, field)
 			p.pop()
@@ -1323,6 +1339,68 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			p.query.ViewSelect = selectSql
 			p.popToEnd()
 			p.step = stepCreateViewName
+		case stepCreateIndexName:
+			name := p.peek()
+			if !isIdentifierOrAsterisk(name) {
+				return p.query, fmt.Errorf("at CREATE INDEX: expect an index name to CREATE")
+			}
+			p.query.IndexName = name
+			p.pop()
+			p.step = stepCreateIndexOn
+		case stepCreateIndexOn:
+			on := p.peek()
+			if strings.ToUpper(on) != "ON" {
+				return p.query, fmt.Errorf("at CREATE INDEX: expect ON")
+			}
+			p.pop()
+			p.step = stepCreateIndexTableName
+		case stepCreateIndexTableName:
+			tableName := p.peek()
+			p.query.Tables = append(p.query.Tables, tableName)
+			p.pop()
+			p.step = stepCreateIndexOpeningParens
+		case stepCreateIndexOpeningParens:
+			openingParens := p.peek()
+			if openingParens != "(" {
+				return p.query, fmt.Errorf("at CREATE INDEX: expect opening parens '('")
+			}
+			p.pop()
+			p.step = stepCreateIndexField
+		case stepCreateIndexField:
+			field := p.peek()
+			p.query.Fields = append(p.query.Fields, field)
+			p.pop()
+			nextIdentifier := p.peek()
+			if nextIdentifier == "," || nextIdentifier == ")" {
+				p.step = stepCreateIndexCommaOrClosingParens
+			} else {
+				p.step = stepCreateIndexAscOrDesc
+			}
+		case stepCreateIndexAscOrDesc:
+			ascOrDesc := p.peek()
+			if strings.ToUpper(ascOrDesc) != "ASC" && strings.ToUpper(ascOrDesc) != "DESC" {
+				return p.query, fmt.Errorf("at CREATE INDEX: expect ASC or DESC")
+			}
+			if strings.ToUpper(ascOrDesc) == "ASC" {
+				p.query.IndexArrangement = append(p.query.IndexArrangement, "ASC")
+			}
+			if strings.ToUpper(ascOrDesc) == "DESC" {
+				p.query.IndexArrangement = append(p.query.IndexArrangement, "DESC")
+			}
+			p.pop()
+			p.step = stepCreateIndexCommaOrClosingParens
+		case stepCreateIndexCommaOrClosingParens:
+			commaOrClosingParens := p.peek()
+			if commaOrClosingParens != "," && commaOrClosingParens != ")" {
+				return p.query, fmt.Errorf("at CREATE INDEX: expect comma or closing parens")
+			}
+			p.pop()
+			if commaOrClosingParens == "," {
+				p.step = stepCreateIndexField
+			}
+			if commaOrClosingParens == ")" {
+				p.step = stepCreateIndexName
+			}
 		case stepCreateUserName:
 			username := p.peek()
 			p.query.Username = username
@@ -1451,6 +1529,111 @@ func (p *parser) doParse() (parsedSql Sql, err error) {
 			}
 			p.pop()
 			p.step = stepGrantUserName
+		case stepRevokePrivilege:
+			privilege := p.peek()
+			// 判断读取到的是什么权限
+			switch strings.ToUpper(privilege) {
+			case "SELECT":
+				p.query.Privileges = append(p.query.Privileges, SelectPrivilege)
+			case "INSERT":
+				p.query.Privileges = append(p.query.Privileges, InsertPrivilege)
+			case "UPDATE":
+				p.query.Privileges = append(p.query.Privileges, UpdatePrivilege)
+			case "DELETE":
+				p.query.Privileges = append(p.query.Privileges, DeletePrivilege)
+			case "ALL PRIVILEGES":
+				p.query.Privileges = append(p.query.Privileges, AllPrivileges)
+			default:
+				return p.query, fmt.Errorf("at REVOKE: unknown privilege %s", privilege)
+			}
+			p.pop()
+			nextIdentifier := p.peek()
+			switch strings.ToUpper(nextIdentifier) {
+			case ",":
+				p.pop()
+				p.step = stepRevokePrivilege
+			case "(":
+				p.step = stepRevokeOpeningParens
+			case "ON TABLE":
+				p.step = stepRevokeOnTable
+			default:
+				return p.query, fmt.Errorf("at REVOKE: unexpected token %s", nextIdentifier)
+			}
+		case stepRevokeOpeningParens:
+			openingParens := p.peek()
+			if openingParens != "(" {
+				return p.query, fmt.Errorf("at REVOKE: expect opening parens '('")
+			}
+			p.pop()
+			p.step = stepRevokePrivilegeField
+		case stepRevokePrivilegeField:
+			field := p.peek()
+			p.query.Fields = append(p.query.Fields, field)
+			p.pop()
+			p.step = stepRevokePrivilegeCommaOrClosingParens
+		case stepRevokePrivilegeCommaOrClosingParens:
+			commaOrClosingParens := p.peek()
+			if commaOrClosingParens != "," && commaOrClosingParens != ")" {
+				return p.query, fmt.Errorf("at REVOKE: expect comma or closing parens")
+			}
+			p.pop()
+			if commaOrClosingParens == "," {
+				p.step = stepRevokePrivilegeField
+			}
+			if commaOrClosingParens == ")" {
+				nextIdentifier := p.peek()
+				switch strings.ToUpper(nextIdentifier) {
+				case ",":
+					p.pop()
+					p.step = stepRevokePrivilege
+				case "ON TABLE":
+					p.step = stepRevokeOnTable
+				default:
+					return p.query, fmt.Errorf("at REVOKE: unexpected token %s", nextIdentifier)
+				}
+			}
+		case stepRevokeOnTable:
+			onTable := p.peek()
+			if strings.ToUpper(onTable) != "ON TABLE" {
+				return p.query, fmt.Errorf("at REVOKE: expect ON TABLE")
+			}
+			p.pop()
+			p.step = stepRevokeTableName
+		case stepRevokeTableName:
+			tableName := p.peek()
+			p.query.Tables = append(p.query.Tables, tableName)
+			p.pop()
+			nextIdentifier := p.peek()
+			if nextIdentifier == "," {
+				p.pop()
+				p.step = stepRevokeTableName
+			} else {
+				p.step = stepRevokeFrom
+			}
+		case stepRevokeFrom:
+			from := p.peek()
+			if strings.ToUpper(from) != "FROM" {
+				return p.query, fmt.Errorf("at REVOKE: expect FROM")
+			}
+			p.pop()
+			p.step = stepRevokeUserName
+		case stepRevokeUserName:
+			username := p.peek()
+			p.query.Users = append(p.query.Users, username)
+			p.pop()
+			nextIdentifier := p.peek()
+			if nextIdentifier == "," {
+				p.step = stepRevokeUserComma
+			} else {
+				p.step = stepRevokeUserName
+			}
+		case stepRevokeUserComma:
+			comma := p.peek()
+			if comma != "," {
+				return p.query, fmt.Errorf("at REVOKE: expect comma ','")
+			}
+			p.pop()
+			p.step = stepRevokeUserName
 		}
 	}
 }
