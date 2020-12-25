@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"bufio"
 	"encoding/csv"
 	"os"
 	"strconv"
@@ -22,6 +23,11 @@ func Handle(sql Sql) (err error) {
 	switch sql.Type {
 	case CreateTable:
 		err = handleCreateTable(sql)
+		if err != nil {
+			return err
+		}
+	case CreateView:
+		err = handleCreateView(sql)
 		if err != nil {
 			return err
 		}
@@ -73,3 +79,29 @@ func handleCreateTable(sql Sql) (err error) {
 	defer file.Close()
 	return nil
 }
+
+// 创建视图的处理器
+func handleCreateView(sql Sql) (err error) {
+	// 用视图名新建文件
+	createTxtFile(sql.Tables[0])
+
+	// 打开文件名称对应的txt文件
+	file, err := os.OpenFile("./file/" + sql.Tables[0] + ".txt", os.O_APPEND|os.O_WRONLY, os.ModeAppend)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	writer := bufio.NewWriter(file)
+	_, err = writer.WriteString(sql.ViewSelect)
+	if err != nil {
+		panic(err)
+	}
+
+	err = writer.Flush()
+	if err != nil {
+		panic(err)
+	}
+	return nil
+}
+

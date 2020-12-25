@@ -45,6 +45,22 @@ func createCsvFile(fileName string) {
 	defer file.Close()
 }
 
+// 用给定的文件名新建txt文件
+func createTxtFile(fileName string) {
+	fileDir := "./file"
+	err := os.MkdirAll(fileDir, 0700)
+	if err != nil {
+		panic(err)
+	}
+
+	file, err := os.Create(fileDir + "/" + fileName + ".txt")
+	if err != nil {
+		panic(err)
+	}
+
+	defer file.Close()
+}
+
 // 增加记录
 // 参数为要增加的记录（元组数组类型）
 func addRecord(records []Record) {
