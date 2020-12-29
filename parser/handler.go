@@ -181,6 +181,16 @@ func handleInsert(sql Sql) (err error) {
 				flag = true
 				// 把该行所有的数据都插入进去
 				for _, insertValue := range sql.Inserts {
+					// 检查唯一和非空约束
+					result := checkUnique(insertValue[index], table.Fields[tableIndex])
+					if result == false {
+						return fmt.Errorf("at INSERT: insert value %s breaks UNIQUE constraint", insertValue[index])
+					}
+					result = checkNotNull(insertValue[index], table.Fields[tableIndex])
+					if result == false {
+						return fmt.Errorf("at INSERT: attempt to insert a null value to a NOT NULL field")
+					}
+					// 约束检查通过
 					table.Fields[tableIndex].Data = append(table.Fields[tableIndex].Data, insertValue[index])
 				}
 			}
@@ -202,21 +212,30 @@ func handleInsert(sql Sql) (err error) {
 	return nil
 }
 
-//func handleSelect(sql Sql) (err error) {
-//	fileName, err := getFileByName(sql.Tables[0])
-//	if err != nil {
-//		panic(err)
-//	}
-//	tableDefFileName := strings.TrimSuffix(fileName, ".csv") + "_def.csv"
-//
-//	tableDef, err := os.Open(tableDefFileName)
-//	if err != nil {
-//		panic(err)
-//	}
-//	table, err := os.Open(fileName)
-//	if err != nil {
-//		panic(err)
-//	}
-//}
+// 检查唯一
+func checkUnique(value string, field FieldJson) (result bool) {
+	// 该列没有定义唯一约束，就不需要检查
+	if field.PrimaryKey == false && field.Unique == false {
+		return true
+	}
+	for _, data := range field.Data {
+		// 查找到重复的值了，检查不通过，返回false
+		if value == data {
+			return false
+		}
+	}
+	return true
+}
 
-//func handleWhere(data [][]string, sql Sql) (result [][]string) {}
+// 检查非空
+func checkNotNull(value string, field FieldJson) (result bool) {
+	// 该列没有定义非空约束，就不需要检查
+	if field.PrimaryKey == false && field.NotNull == false {
+		return true
+	}
+	if value == "" {
+		return false
+	} else {
+		return true
+	}
+}
