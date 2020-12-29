@@ -2,13 +2,10 @@ package parser
 
 import (
 	"bufio"
-	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"os"
-	"strings"
 )
 
 type TableJson struct {
@@ -104,7 +101,7 @@ func handleCreateTable(sql Sql) (err error) {
 	}
 
 	// 生成JSON文件
-	err = ioutil.WriteFile("./file/" + sql.Tables[0] + ".json", tableJson, os.ModeAppend)
+	err = ioutil.WriteFile("./file/"+sql.Tables[0]+".json", tableJson, os.ModeAppend)
 	if err != nil {
 		panic(err)
 	}
@@ -153,50 +150,55 @@ func handleCreateIndex(sql Sql) (err error) {
 }
 
 func handleInsert(sql Sql) (err error) {
-	fileName, err := getFileByName(sql.Tables[0] + ".csv")
+	fileName, err := getFileByName(sql.Tables[0] + ".json")
 	path := "./file/"
 	if err != nil {
 		panic(err)
 	}
+	// 不存在这个名称的表文件，说明该表不存在
 	if fileName == "" {
 		return fmt.Errorf("at INSERT: unknown table name %s", sql.Tables[0])
 	}
-	tableDefFileName := strings.TrimSuffix(fileName, ".csv") + "_def.csv"
-	tableDef, err := os.Open(path + tableDefFileName)
+	// 读表文件内容
+	bytes, err := ioutil.ReadFile(path+fileName)
 	if err != nil {
 		panic(err)
 	}
-	defer tableDef.Close()
-	table, err := os.OpenFile(path+fileName, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
+	// 把表文件转换为结构体
+	table := &TableJson{}
+	err = json.Unmarshal(bytes, table)
 	if err != nil {
 		panic(err)
 	}
-	defer table.Close()
-	tableDefineReader := csv.NewReader(tableDef)
-	tableDefData, err := tableDefineReader.ReadAll()
-	if err != nil {
-		panic(err)
-	}
-
-	flag := false
-	for _, field := range sql.Fields {
-		for _, def := range tableDefData {
-			if field == def[0] {
+	// 处理插入请求
+	// 找到对应列名的数据，插入到对应的列中
+	for index, insertFieldName := range sql.Fields {
+		// 是否找到对应的列
+		flag := false
+		for tableIndex, tableField := range table.Fields {
+			// 找到对应的列了，进行插入
+			if insertFieldName == tableField.Name {
 				flag = true
-				break
+				// 把该行所有的数据都插入进去
+				for _, insertValue := range sql.Inserts {
+					table.Fields[tableIndex].Data = append(table.Fields[tableIndex].Data, insertValue[index])
+				}
 			}
 		}
-		if flag == false {
-			return fmt.Errorf("at SELECT: Unknown field name %s", field)
+		if flag != true {
+			return fmt.Errorf("at INSERT: unknown field %s in table %s", insertFieldName, table.Name)
 		}
 		flag = false
 	}
-
-	table.Seek(0, io.SeekEnd)
-	tableWriter := csv.NewWriter(table)
-	tableWriter.WriteAll(sql.Inserts)
-	tableWriter.Flush()
-
+	// 开始覆盖写入文件
+	jsonTable, err := json.Marshal(table)
+	if err != nil {
+		panic(err)
+	}
+	err = ioutil.WriteFile(path+fileName, jsonTable, os.ModeAppend)
+	if err != nil {
+		panic(err)
+	}
 	return nil
 }
 
