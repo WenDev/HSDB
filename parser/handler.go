@@ -8,11 +8,13 @@ import (
 	"os"
 )
 
+// 表的存储结构
 type TableJson struct {
 	Name   string      `json:"name"`
 	Fields []FieldJson `json:"fields"`
 }
 
+// 列的存储结构
 type FieldJson struct {
 	Name             string   `json:"name"`
 	DataType         DataType `json:"data_type"`
@@ -35,6 +37,26 @@ type IndexJson struct {
 type IndexValueJson struct {
 	Value      string `json:"value"`
 	PrimaryKey string `json:"primary_key"`
+}
+
+type UsersJson struct {
+	Users []UserJson `json:"users"`
+}
+
+// 用户权限的存储结构
+type UserJson struct {
+	UserName         string           `json:"user_name"`
+	Password         string           `json:"password"`
+	SelectPrivileges []TableAndFields `json:"select_privileges"`
+	InsertPrivileges []TableAndFields `json:"insert_privileges"`
+	UpdatePrivileges []TableAndFields `json:"update_privileges"`
+	DeletePrivileges []TableAndFields `json:"delete_privileges"`
+}
+
+// 存储一个表及其某些字段的结构，用于授权管理
+type TableAndFields struct {
+	TableName  string   `json:"table_name"`
+	FieldNames []string `json:"field_names"`
 }
 
 func Handle(sql Sql) (result []Record, rows int, err error) {
@@ -87,6 +109,13 @@ func Handle(sql Sql) (result []Record, rows int, err error) {
 			return nil, 0, err
 		} else {
 			return nil, rows, nil
+		}
+	case CreateUser:
+		err = handleCreateUser(sql)
+		if err != nil {
+			return nil, 0, err
+		} else {
+			return nil, 1, nil
 		}
 	default:
 		return nil, 0, nil
@@ -188,7 +217,7 @@ func handleInsert(sql Sql) (rows int, err error) {
 		return 0, fmt.Errorf("at INSERT: unknown table name %s", sql.Tables[0])
 	}
 	// 读表文件内容
-	bytes, err := ioutil.ReadFile(path+fileName)
+	bytes, err := ioutil.ReadFile(path + fileName)
 	if err != nil {
 		panic(err)
 	}
@@ -279,7 +308,7 @@ func handleSelect(sql Sql) (result []Record, err error) {
 		return nil, fmt.Errorf("at SELECT: unknown table name %s", sql.Tables[0])
 	}
 	// 读表文件内容
-	bytes, err := ioutil.ReadFile(path+fileName)
+	bytes, err := ioutil.ReadFile(path + fileName)
 	if err != nil {
 		panic(err)
 	}
@@ -339,7 +368,7 @@ func handleUpdate(sql Sql) (rows int, err error) {
 		return 0, fmt.Errorf("at INSERT: unknown table name %s", sql.Tables[0])
 	}
 	// 读表文件内容
-	bytes, err := ioutil.ReadFile(path+fileName)
+	bytes, err := ioutil.ReadFile(path + fileName)
 	if err != nil {
 		panic(err)
 	}
@@ -393,7 +422,7 @@ func handleDelete(sql Sql) (rows int, err error) {
 		return 0, fmt.Errorf("at INSERT: unknown table name %s", sql.Tables[0])
 	}
 	// 读表文件内容
-	bytes, err := ioutil.ReadFile(path+fileName)
+	bytes, err := ioutil.ReadFile(path + fileName)
 	if err != nil {
 		panic(err)
 	}
@@ -423,4 +452,55 @@ func handleDelete(sql Sql) (rows int, err error) {
 		panic(err)
 	}
 	return rows, nil
+}
+
+func handleCreateUser(sql Sql) (err error) {
+	fileName, err := getFileByName("users.json")
+	path := "./file/"
+	if err != nil {
+		panic(err)
+	}
+	// 用户文件不存在则创建
+	if fileName == "" {
+		createJsonFile("users")
+		users := UsersJson{Users:[]UserJson{}}
+		bytes, err := json.Marshal(users)
+		if err != nil {
+			panic(err)
+		}
+		err = ioutil.WriteFile(path+"users.json", bytes, os.ModeAppend)
+		if err != nil {
+			panic(err)
+		}
+	}
+	// 读表文件内容
+	bytes, err := ioutil.ReadFile(path + "users.json")
+	if err != nil {
+		panic(err)
+	}
+	// 把表文件转换为结构体
+	users := &UsersJson{}
+	err = json.Unmarshal(bytes, users)
+	if err != nil {
+		panic(err)
+	}
+	user := UserJson{
+		UserName:         sql.Username,
+		Password:         sql.Password,
+		SelectPrivileges: []TableAndFields{},
+		InsertPrivileges: []TableAndFields{},
+		UpdatePrivileges: []TableAndFields{},
+		DeletePrivileges: []TableAndFields{},
+	}
+	users.Users = append(users.Users, user)
+	jsonUsers, err := json.Marshal(users)
+	if err != nil {
+		panic(err)
+	}
+	// 生成JSON文件
+	err = ioutil.WriteFile(path+"users.json", jsonUsers, os.ModeAppend)
+	if err != nil {
+		panic(err)
+	}
+	return nil
 }
