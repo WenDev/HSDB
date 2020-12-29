@@ -74,6 +74,20 @@ func Handle(sql Sql) (result []Record, rows int, err error) {
 		} else {
 			return result, 0, nil
 		}
+	case Update:
+		rows, err = handleUpdate(sql)
+		if err != nil {
+			return nil, 0, err
+		} else {
+			return nil, rows, nil
+		}
+	case Delete:
+		rows, err = handleDelete(sql)
+		if err != nil {
+			return nil, 0, err
+		} else {
+			return nil, rows, nil
+		}
 	default:
 		return nil, 0, nil
 	}
@@ -312,3 +326,101 @@ func handleSelect(sql Sql) (result []Record, err error) {
 }
 
 // TODO 处理Where子句
+
+// 处理UPDATE更新语句
+func handleUpdate(sql Sql) (rows int, err error) {
+	fileName, err := getFileByName(sql.Tables[0] + ".json")
+	path := "./file/"
+	if err != nil {
+		panic(err)
+	}
+	// 不存在这个名称的表文件，说明该表不存在
+	if fileName == "" {
+		return 0, fmt.Errorf("at INSERT: unknown table name %s", sql.Tables[0])
+	}
+	// 读表文件内容
+	bytes, err := ioutil.ReadFile(path+fileName)
+	if err != nil {
+		panic(err)
+	}
+	// 把表文件转换为结构体
+	table := &TableJson{}
+	err = json.Unmarshal(bytes, table)
+	if err != nil {
+		panic(err)
+	}
+	rows = 0
+	// 处理更新请求
+	for fieldName, value := range sql.Updates {
+		flag := false
+		for fieldIndex, field := range table.Fields {
+			if field.Name == fieldName {
+				var updateData []string
+				for range table.Fields[fieldIndex].Data {
+					updateData = append(updateData, value)
+				}
+				table.Fields[fieldIndex].Data = updateData
+				flag = true
+				rows += len(updateData)
+			}
+		}
+		if flag != true {
+			return 0, fmt.Errorf("at UPDATE: unknown field %s in table %s", fieldName, table.Name)
+		}
+		flag = false
+	}
+	// 开始覆盖写入文件
+	jsonTable, err := json.Marshal(table)
+	if err != nil {
+		panic(err)
+	}
+	err = ioutil.WriteFile(path+fileName, jsonTable, os.ModeAppend)
+	if err != nil {
+		panic(err)
+	}
+	return rows, nil
+}
+
+// 处理删除
+func handleDelete(sql Sql) (rows int, err error) {
+	fileName, err := getFileByName(sql.Tables[0] + ".json")
+	path := "./file/"
+	if err != nil {
+		panic(err)
+	}
+	// 不存在这个名称的表文件，说明该表不存在
+	if fileName == "" {
+		return 0, fmt.Errorf("at INSERT: unknown table name %s", sql.Tables[0])
+	}
+	// 读表文件内容
+	bytes, err := ioutil.ReadFile(path+fileName)
+	if err != nil {
+		panic(err)
+	}
+	// 把表文件转换为结构体
+	table := &TableJson{}
+	err = json.Unmarshal(bytes, table)
+	if err != nil {
+		panic(err)
+	}
+	rows = 0
+	// 处理删除请求
+	for index, field := range table.Fields {
+		if len(field.Data) > rows {
+			rows = len(field.Data)
+		}
+		// 删除数据
+		table.Fields[index].Data = field.Data[0:0]
+		continue
+	}
+	// 开始覆盖写入文件
+	jsonTable, err := json.Marshal(table)
+	if err != nil {
+		panic(err)
+	}
+	err = ioutil.WriteFile(path+fileName, jsonTable, os.ModeAppend)
+	if err != nil {
+		panic(err)
+	}
+	return rows, nil
+}
