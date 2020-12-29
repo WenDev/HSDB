@@ -37,33 +37,46 @@ type IndexValueJson struct {
 	PrimaryKey string `json:"primary_key"`
 }
 
-func Handle(sql Sql) (err error) {
+func Handle(sql Sql) (result []Record, rows int, err error) {
 	switch sql.Type {
 	case CreateTable:
 		err = handleCreateTable(sql)
 		if err != nil {
-			return err
+			return nil, 0, err
+		} else {
+			return nil, 0, err
 		}
 	case CreateView:
 		err = handleCreateView(sql)
 		if err != nil {
-			return err
+			return nil, 0, err
+		} else {
+			return nil, 1, err
 		}
 	case CreateIndex:
-		err = handleCreateIndex(sql)
+		count, err := handleCreateIndex(sql)
 		if err != nil {
-			return err
+			return nil, 0, err
+		} else {
+			return nil, count, nil
 		}
 	case Insert:
-		err = handleInsert(sql)
+		rows, err = handleInsert(sql)
 		if err != nil {
-			return err
+			return nil, 0, err
+		} else {
+			return nil, rows, nil
+		}
+	case Select:
+		result, err = handleSelect(sql)
+		if err != nil {
+			return nil, 0, err
+		} else {
+			return result, 0, nil
 		}
 	default:
-		return nil
+		return nil, 0, nil
 	}
-
-	return nil
 }
 
 // 建表的处理器
@@ -135,7 +148,7 @@ func handleCreateView(sql Sql) (err error) {
 }
 
 // 创建索引的处理器
-func handleCreateIndex(sql Sql) (err error) {
+func handleCreateIndex(sql Sql) (indexCount int, err error) {
 	// 每个列一个JSON文件
 	for index, name := range sql.Fields {
 		// 该列没有定义升序还是降序就按升序存储
@@ -146,10 +159,11 @@ func handleCreateIndex(sql Sql) (err error) {
 		}
 	}
 
-	return nil
+	return len(sql.Fields), nil
 }
 
-func handleInsert(sql Sql) (err error) {
+// 处理INSERT插入语句
+func handleInsert(sql Sql) (rows int, err error) {
 	fileName, err := getFileByName(sql.Tables[0] + ".json")
 	path := "./file/"
 	if err != nil {
@@ -157,7 +171,7 @@ func handleInsert(sql Sql) (err error) {
 	}
 	// 不存在这个名称的表文件，说明该表不存在
 	if fileName == "" {
-		return fmt.Errorf("at INSERT: unknown table name %s", sql.Tables[0])
+		return 0, fmt.Errorf("at INSERT: unknown table name %s", sql.Tables[0])
 	}
 	// 读表文件内容
 	bytes, err := ioutil.ReadFile(path+fileName)
@@ -184,11 +198,11 @@ func handleInsert(sql Sql) (err error) {
 					// 检查唯一和非空约束
 					result := checkUnique(insertValue[index], table.Fields[tableIndex])
 					if result == false {
-						return fmt.Errorf("at INSERT: insert value %s breaks UNIQUE constraint", insertValue[index])
+						return 0, fmt.Errorf("at INSERT: insert value %s breaks UNIQUE constraint on field %s", insertValue[index], table.Fields[tableIndex].Name)
 					}
 					result = checkNotNull(insertValue[index], table.Fields[tableIndex])
 					if result == false {
-						return fmt.Errorf("at INSERT: attempt to insert a null value to a NOT NULL field")
+						return 0, fmt.Errorf("at INSERT: attempt to insert a null value to a NOT NULL field %s", table.Fields[tableIndex].Name)
 					}
 					// 约束检查通过
 					table.Fields[tableIndex].Data = append(table.Fields[tableIndex].Data, insertValue[index])
@@ -196,7 +210,7 @@ func handleInsert(sql Sql) (err error) {
 			}
 		}
 		if flag != true {
-			return fmt.Errorf("at INSERT: unknown field %s in table %s", insertFieldName, table.Name)
+			return 0, fmt.Errorf("at INSERT: unknown field %s in table %s", insertFieldName, table.Name)
 		}
 		flag = false
 	}
@@ -209,7 +223,7 @@ func handleInsert(sql Sql) (err error) {
 	if err != nil {
 		panic(err)
 	}
-	return nil
+	return len(sql.Inserts), nil
 }
 
 // 检查唯一
@@ -239,3 +253,62 @@ func checkNotNull(value string, field FieldJson) (result bool) {
 		return true
 	}
 }
+
+func handleSelect(sql Sql) (result []Record, err error) {
+	fileName, err := getFileByName(sql.Tables[0] + ".json")
+	path := "./file/"
+	if err != nil {
+		panic(err)
+	}
+	// 不存在这个名称的表文件，说明该表不存在
+	if fileName == "" {
+		return nil, fmt.Errorf("at SELECT: unknown table name %s", sql.Tables[0])
+	}
+	// 读表文件内容
+	bytes, err := ioutil.ReadFile(path+fileName)
+	if err != nil {
+		panic(err)
+	}
+	// 把表文件转换为结构体
+	table := &TableJson{}
+	err = json.Unmarshal(bytes, table)
+	if err != nil {
+		panic(err)
+	}
+	// 处理查询请求
+	result = []Record{}
+	for _, selectField := range sql.Fields {
+		flag := false
+		for _, field := range table.Fields {
+			if selectField == field.Name {
+				result = append(result, Record{
+					Field: Field{
+						Name:                     field.Name,
+						DataType:                 field.DataType,
+						DataLength:               field.DataLength,
+						Constraint:               nil,
+						CheckConditions:          nil,
+						CheckConditionsOperator:  nil,
+						PrimaryKey:               field.PrimaryKey,
+						NotNull:                  field.NotNull,
+						Unique:                   field.Unique,
+						ForeignKey:               field.ForeignKey,
+						ForeignKeyFlag:           false,
+						ForeignKeyReferenceTable: field.ForeignKeyTable,
+						ForeignKeyReferenceField: field.ForeignKeyColumn,
+					},
+					Data: field.Data,
+				})
+				flag = true
+			}
+		}
+		if flag != true {
+			return nil, fmt.Errorf("at INSERT: unknown field %s in table %s", selectField, table.Name)
+		}
+		flag = false
+	}
+
+	return result, nil
+}
+
+// TODO 处理Where子句

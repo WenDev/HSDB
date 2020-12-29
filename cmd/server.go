@@ -18,7 +18,11 @@ func main() {
 	if err != nil {
 		panic(err)
 	} else {
-		err = parser.Handle(parsedSql)
-		fmt.Println(err)
+		result, rows, err := parser.Handle(parsedSql)
+		if err != nil {
+			fmt.Println(err)
+		}
+		fmt.Println(result)
+		fmt.Println(rows)
 	}
 }

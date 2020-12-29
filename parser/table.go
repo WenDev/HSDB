@@ -31,8 +31,8 @@ type Field struct {
 type Record struct {
 	// 该元组对应的列
 	Field Field
-	// 具体数值，使用string类型存储
-	Data string
+	// 具体数值，使用string数组类型存储
+	Data []string
 }
 
 // 关系完整性约束
