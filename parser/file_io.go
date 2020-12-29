@@ -1,34 +1,9 @@
 package parser
 
 import (
-	"encoding/csv"
 	"io/ioutil"
 	"os"
 )
-
-// 通过表名以读的方式打开一个CSV文件，适用于查询
-func getReaderByName(fileName string) (reader *csv.Reader, error error) {
-	// 打开文件名称对应的CSV文件
-	file, err := os.Open(fileName + ".csv")
-	if err != nil {
-		panic(err)
-	}
-	defer file.Close()
-
-	return csv.NewReader(file), nil
-}
-
-// 通过表名以写的方式打开一个CSV文件，适用于增删改
-func getWriterByName(fileName string) (*csv.Writer, error) {
-	// 打开文件名称对应的CSV文件
-	file, err := os.Open(fileName + ".csv")
-	if err != nil {
-		panic(err)
-	}
-	defer file.Close()
-
-	return csv.NewWriter(file), nil
-}
 
 // 根据文件名创建目录及新的CSV文件
 func createCsvFile(fileName string) {
@@ -39,6 +14,22 @@ func createCsvFile(fileName string) {
 	}
 
 	file, err := os.Create(fileDir + "/" + fileName + ".csv")
+	if err != nil {
+		panic(err)
+	}
+
+	defer file.Close()
+}
+
+// 用文件名创建.json文件
+func createJsonFile(fileName string) {
+	fileDir := "./file"
+	err := os.MkdirAll(fileDir, 0700)
+	if err != nil {
+		panic(err)
+	}
+
+	file, err := os.Create(fileDir + "/" + fileName + ".json")
 	if err != nil {
 		panic(err)
 	}

@@ -1,1 +1,0 @@
-select Sno, Sage, Sname from Student where Sdept='IS'

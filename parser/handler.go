@@ -3,30 +3,41 @@ package parser
 import (
 	"bufio"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
-	"strconv"
 	"strings"
 )
 
-// 表定义的存储结构
-type TableDefine struct {
-	ColumnName           string   // 列名
-	DataType             DataType // 本列的数据类型
-	DataLength           int      // 本列的数据长度
-	NotNull              bool     // 是否存在非空约束
-	Unique               bool     // 是否存在唯一约束
-	PrimaryKey           bool     // 是否为主键
-	ForeignKey           bool     // 是否为外键
-	ForeignKeyTableName  string   // 外键参照表名
-	ForeignKeyColumnName string   // 外键参照列名
+type TableJson struct {
+	Name   string      `json:"name"`
+	Fields []FieldJson `json:"fields"`
+}
+
+type FieldJson struct {
+	Name             string   `json:"name"`
+	DataType         DataType `json:"data_type"`
+	DataLength       int      `json:"data_length"`
+	NotNull          bool     `json:"not_null"`
+	Unique           bool     `json:"unique"`
+	PrimaryKey       bool     `json:"primary_key"`
+	ForeignKey       bool     `json:"foreign_key"`
+	ForeignKeyTable  string   `json:"foreign_key_table"`
+	ForeignKeyColumn string   `json:"foreign_key_column"`
+	Data             []string `json:"data"`
+}
+
+type IndexJson struct {
+	Name  string           `json:"name"`
+	Index []IndexValueJson `json:"index"`
 }
 
 // 索引的存储结构
-type Index struct {
-	Values     []string // 该行的值
-	PrimaryKey string // 该行的主键
+type IndexValueJson struct {
+	Value      string `json:"value"`
+	PrimaryKey string `json:"primary_key"`
 }
 
 func Handle(sql Sql) (err error) {
@@ -60,43 +71,44 @@ func Handle(sql Sql) (err error) {
 
 // 建表的处理器
 func handleCreateTable(sql Sql) (err error) {
-	// 创建表名对应的数据CSV文件
-	createCsvFile(sql.Tables[0])
-	// 创建表名对应的列定义CSV文件
-	createCsvFile(sql.Tables[0] + "_def")
+	// 创建表的JSON文件
+	createJsonFile(sql.Tables[0])
 
-	// 打开文件名称对应的CSV文件
-	file, err := os.OpenFile("./file/"+sql.Tables[0]+"_def.csv", os.O_APPEND|os.O_WRONLY, os.ModeAppend)
-	if err != nil {
-		panic(err)
-	}
-
-	writer := csv.NewWriter(file)
-
-	var tableDefineData [][]string
-	var fieldDefineData []string
+	// 创建列定义的结构体数组
+	var fields []FieldJson
+	// 把每一个列都转换为一个对象，加入结构体数组
 	for _, field := range sql.CreateFields {
-		fieldDefineData = append(fieldDefineData, field.Name)
-		fieldDefineData = append(fieldDefineData, DataTypeString[field.DataType])
-		fieldDefineData = append(fieldDefineData, strconv.Itoa(field.DataLength))
-		fieldDefineData = append(fieldDefineData, strconv.FormatBool(field.NotNull))
-		fieldDefineData = append(fieldDefineData, strconv.FormatBool(field.Unique))
-		fieldDefineData = append(fieldDefineData, strconv.FormatBool(field.PrimaryKey))
-		fieldDefineData = append(fieldDefineData, strconv.FormatBool(field.ForeignKey))
-		fieldDefineData = append(fieldDefineData, field.ForeignKeyReferenceTable)
-		fieldDefineData = append(fieldDefineData, field.ForeignKeyReferenceField)
-		// 把每一列的元数据放入表定义的元数据中
-		tableDefineData = append(tableDefineData, fieldDefineData)
-		fieldDefineData = []string{}
+		fields = append(fields, FieldJson{
+			Name:             field.Name,
+			DataType:         field.DataType,
+			DataLength:       field.DataLength,
+			NotNull:          field.NotNull,
+			Unique:           field.Unique,
+			PrimaryKey:       field.PrimaryKey,
+			ForeignKey:       field.ForeignKey,
+			ForeignKeyTable:  field.ForeignKeyReferenceTable,
+			ForeignKeyColumn: field.ForeignKeyReferenceField,
+			Data:             []string{},
+		})
 	}
 
-	err = writer.WriteAll(tableDefineData)
+	// 创建表定义的结构体
+	table := TableJson{
+		Name:   sql.Tables[0],
+		Fields: fields,
+	}
+
+	tableJson, err := json.Marshal(table)
 	if err != nil {
 		panic(err)
 	}
 
-	writer.Flush()
-	defer file.Close()
+	// 生成JSON文件
+	err = ioutil.WriteFile("./file/" + sql.Tables[0] + ".json", tableJson, os.ModeAppend)
+	if err != nil {
+		panic(err)
+	}
+
 	return nil
 }
 
@@ -127,13 +139,13 @@ func handleCreateView(sql Sql) (err error) {
 
 // 创建索引的处理器
 func handleCreateIndex(sql Sql) (err error) {
-	// 每个列一个CSV文件
+	// 每个列一个JSON文件
 	for index, name := range sql.Fields {
 		// 该列没有定义升序还是降序就按升序存储
-		if index >= len(sql.IndexArrangement)|| sql.IndexArrangement[index] == "ASC" {
-			createCsvFile(sql.IndexName + "_" + sql.Tables[0] + "_idx_ASC_" + name)
+		if index >= len(sql.IndexArrangement) || sql.IndexArrangement[index] == "ASC" {
+			createJsonFile(sql.IndexName + "_" + sql.Tables[0] + "_idx_ASC_" + name)
 		} else {
-			createCsvFile(sql.IndexName + "_" + sql.Tables[0] + "_idx_DESC_" + name)
+			createJsonFile(sql.IndexName + "_" + sql.Tables[0] + "_idx_DESC_" + name)
 		}
 	}
 
@@ -155,7 +167,7 @@ func handleInsert(sql Sql) (err error) {
 		panic(err)
 	}
 	defer tableDef.Close()
-	table, err := os.OpenFile(path + fileName, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
+	table, err := os.OpenFile(path+fileName, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
 	if err != nil {
 		panic(err)
 	}
