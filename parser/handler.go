@@ -124,6 +124,13 @@ func Handle(sql Sql) (result []Record, rows int, err error) {
 		} else {
 			return nil, rows, nil
 		}
+	case Revoke:
+		rows, err = handleRevoke(sql)
+		if err != nil {
+			return nil, 0, err
+		} else {
+			return nil, rows, err
+		}
 	default:
 		return nil, 0, nil
 	}
@@ -622,4 +629,121 @@ func handleGrant(sql Sql) (rows int, err error) {
 }
 
 // 处理Revoke收回权限语句
-func handleRevoke() {}
+func handleRevoke(sql Sql) (rows int, err error) {
+	fileName, err := getFileByName("users.json")
+	path := "./file/"
+	if err != nil {
+		return 0, err
+	}
+	// 用户文件不存在则创建
+	if fileName == "" {
+		createJsonFile("users")
+		users := UsersJson{Users: []UserJson{}}
+		bytes, err := json.Marshal(users)
+		if err != nil {
+			return 0, err
+		}
+		err = ioutil.WriteFile(path+"users.json", bytes, os.ModeAppend)
+		if err != nil {
+			return 0, err
+		}
+	}
+	// 读表文件内容
+	bytes, err := ioutil.ReadFile(path + "users.json")
+	if err != nil {
+		return 0, err
+	}
+	// 把表文件转换为结构体
+	users := &UsersJson{}
+	err = json.Unmarshal(bytes, users)
+	if err != nil {
+		return 0, err
+	}
+	// 循环遍历查询语句中的用户名，查找有无相同名称的用户
+	for _, user := range sql.Users {
+		flag := false
+		for jsonUserIndex, jsonUser := range users.Users {
+			// 找到相同名称的用户了，开始授权
+			if jsonUser.UserName == user {
+				for _, privilege := range sql.Privileges {
+					switch privilege {
+					case InsertPrivilege:
+						for _, table := range sql.Tables {
+							users.Users[jsonUserIndex].InsertPrivileges = deletePrivilege(TableAndFields{
+								TableName:  table,
+								FieldNames: nil,
+							}, jsonUser.InsertPrivileges)
+						}
+					case SelectPrivilege:
+						for _, table := range sql.Tables {
+							users.Users[jsonUserIndex].SelectPrivileges = deletePrivilege(TableAndFields{
+								TableName:  table,
+								FieldNames: nil,
+							}, jsonUser.SelectPrivileges)
+						}
+					case UpdatePrivilege:
+						for _, table := range sql.Tables {
+							users.Users[jsonUserIndex].UpdatePrivileges = deletePrivilege(TableAndFields{
+								TableName:  table,
+								FieldNames: nil,
+							}, jsonUser.UpdatePrivileges)
+						}
+					case DeletePrivilege:
+						for _, table := range sql.Tables {
+							users.Users[jsonUserIndex].DeletePrivileges = deletePrivilege(TableAndFields{
+								TableName:  table,
+								FieldNames: nil,
+							}, jsonUser.DeletePrivileges)
+						}
+					case AllPrivileges:
+						for _, table := range sql.Tables {
+							users.Users[jsonUserIndex].SelectPrivileges = deletePrivilege(TableAndFields{
+								TableName:  table,
+								FieldNames: nil,
+							}, jsonUser.SelectPrivileges)
+							users.Users[jsonUserIndex].DeletePrivileges = deletePrivilege(TableAndFields{
+								TableName:  table,
+								FieldNames: nil,
+							}, jsonUser.DeletePrivileges)
+							users.Users[jsonUserIndex].UpdatePrivileges = deletePrivilege(TableAndFields{
+								TableName:  table,
+								FieldNames: nil,
+							}, jsonUser.UpdatePrivileges)
+							users.Users[jsonUserIndex].InsertPrivileges = deletePrivilege(TableAndFields{
+								TableName:  table,
+								FieldNames: nil,
+							}, jsonUser.InsertPrivileges)
+						}
+					}
+				}
+				flag = true
+			}
+		}
+		if flag != true {
+			return 0, fmt.Errorf("at GRANT: unknown user %s", user)
+		}
+		flag = false
+	}
+	// 开始覆盖写入文件
+	jsonUsers, err := json.Marshal(users)
+	if err != nil {
+		return 0, err
+	}
+	err = ioutil.WriteFile(path+fileName, jsonUsers, os.ModeAppend)
+	if err != nil {
+		return 0, err
+	}
+	return len(sql.Privileges), nil
+}
+
+// 删除指定权限
+func deletePrivilege(revokeFields TableAndFields, fields []TableAndFields) (result []TableAndFields) {
+	result = make([]TableAndFields, 0, len(fields))
+	for _, field := range fields {
+		if revokeFields.TableName != field.TableName {
+			result = append(result, field)
+		}
+	}
+
+	return result
+}
