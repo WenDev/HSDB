@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"strconv"
 	"strings"
+	"unsafe"
 )
 
 // 处理帮助命令
@@ -21,6 +22,12 @@ func HandleHelp(help string) (err error) {
 			return nil
 		}
 	case "VIEW":
+		err = handleHelpView(help)
+		if err != nil {
+			return err
+		} else {
+			return nil
+		}
 	case "INDEX":
 	default:
 		return fmt.Errorf("at HELP: unknown identifier %s", s[1])
@@ -67,7 +74,25 @@ func handleHelpTable(help string) (err error) {
 }
 
 // help view命令的处理器
-func handleHelpView() {}
+func handleHelpView(help string) (err error) {
+	s := strings.Split(help, " ")
+	fileName, err := getFileByName(s[2] + ".txt")
+	path := "./file/"
+	if err != nil {
+		return err
+	}
+	// 不存在这个名称的表文件，说明该视图不存在
+	if fileName == "" {
+		return fmt.Errorf("at HELP: unknown view name %s", s[2])
+	}
+	// 读文件内容
+	bytes, err := ioutil.ReadFile(path + fileName)
+	if err != nil {
+		return err
+	}
+	fmt.Println(*(*string)(unsafe.Pointer(&bytes)))
+	return nil
+}
 
 // help index命令的处理器
 func handleHelpIndex() {}
