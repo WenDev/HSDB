@@ -65,3 +65,31 @@ func getFilesByNameLike(name string) (files []string, err error) {
 	}
 	return files, nil
 }
+
+// 将文件分类，用于help database命令
+func getFilesForHelpDataBase() (tables []string, indexes []string, views []string, err error) {
+	dir, err := ioutil.ReadDir("./file")
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	for _, file := range dir {
+		// users.json是存储用户和权限的文件，不需要处理
+		if file.Name() == "users.json" {
+			continue
+		}
+		// txt文件是视图文件
+		if strings.Contains(file.Name(), ".txt") {
+			views = append(views, file.Name())
+		}
+		// 含有idx的是索引
+		if strings.Contains(file.Name(), "idx") {
+			indexes = append(indexes, file.Name())
+		}
+		// 不含有idx的json文件是表
+		if strings.Contains(file.Name(), ".json") && !strings.Contains(file.Name(), "idx") {
+			tables = append(tables, file.Name())
+		}
+	}
+	// 没有错误，返回
+	return tables, indexes, views, nil
+}

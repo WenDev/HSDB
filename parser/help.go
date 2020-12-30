@@ -14,6 +14,12 @@ func HandleHelp(help string) (err error) {
 	s := strings.Split(help, " ")
 	switch strings.ToUpper(s[1]) {
 	case "DATABASE":
+		err = handleHelpDataBase()
+		if err != nil {
+			return err
+		} else {
+			return nil
+		}
 	case "TABLE":
 		err = handleHelpTable(help)
 		if err != nil {
@@ -38,12 +44,34 @@ func HandleHelp(help string) (err error) {
 	default:
 		return fmt.Errorf("at HELP: unknown identifier %s", s[1])
 	}
-	// 没有出现错误
-	return nil
 }
 
 // help database命令的处理器
-func handleHelpDataBase() {}
+func handleHelpDataBase() (err error) {
+	tables, indexes, views, err := getFilesForHelpDataBase()
+	if err != nil {
+		return err
+	}
+	// 表
+	fmt.Println("Tables: ")
+	for _, table := range tables {
+		fmt.Print("- ")
+		fmt.Println(strings.TrimSuffix(table, ".json"))
+	}
+	// 视图
+	fmt.Println("Views: ")
+	for _, view := range views {
+		fmt.Print("- ")
+		fmt.Println(strings.TrimSuffix(view, ".txt"))
+	}
+	// 索引
+	fmt.Println("Indexes: ")
+	for _, index := range indexes {
+		indexInfo := strings.Split(index, "_")
+		fmt.Printf("- Index: %s, Table: %s, Field: %s, Type: %s\n", indexInfo[0], indexInfo[1], strings.TrimSuffix(indexInfo[4], ".json"), indexInfo[3])
+	}
+	return nil
+}
 
 // help table命令的处理器
 func handleHelpTable(help string) (err error) {
