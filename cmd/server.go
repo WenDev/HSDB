@@ -22,6 +22,14 @@ func main() {
 		if sql == "" {
 			continue
 		}
+		s := strings.Split(sql, " ")
+		if strings.ToUpper(s[0]) == "HELP" {
+			err := parser.HandleHelp(sql)
+			if err != nil {
+				fmt.Println(err)
+			}
+			continue
+		}
 		parsedSql, err := parser.Parse(sql)
 		if err != nil {
 			fmt.Println(err)
