@@ -29,6 +29,12 @@ func HandleHelp(help string) (err error) {
 			return nil
 		}
 	case "INDEX":
+		err = handleHelpIndex(help)
+		if err != nil {
+			return err
+		} else {
+			return nil
+		}
 	default:
 		return fmt.Errorf("at HELP: unknown identifier %s", s[1])
 	}
@@ -95,4 +101,18 @@ func handleHelpView(help string) (err error) {
 }
 
 // help index命令的处理器
-func handleHelpIndex() {}
+func handleHelpIndex(help string) (err error) {
+	s := strings.Split(help, " ")
+	fileNames, err := getFilesByNameLike(s[2])
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Index Name: %s\n", s[2])
+	fmt.Println("Type: Unique")
+	for _, fileName := range fileNames {
+		name := strings.TrimSuffix(fileName, ".json")
+		indexInfo := strings.Split(name, "_")
+		fmt.Printf("Table: %s, Field: %s, Type: %s\n", indexInfo[1], indexInfo[4], indexInfo[3])
+	}
+	return nil
+}
