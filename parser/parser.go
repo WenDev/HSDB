@@ -133,7 +133,7 @@ var WhereConditionString = []string{
 type Privilege int
 
 const (
-	UnknownPermission Privilege = iota
+	UnknownPrivilege Privilege = iota
 	SelectPrivilege
 	InsertPrivilege
 	UpdatePrivilege
